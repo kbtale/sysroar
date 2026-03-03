@@ -1,5 +1,5 @@
 import uuid
-from .ingestion import redis_ingestion
+from telemetry.ingestion import redis_ingestion
 
 class WebSocketTicketManager:
     """

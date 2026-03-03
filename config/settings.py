@@ -15,6 +15,8 @@ SECRET_KEY = env('SECRET_KEY', default='django-insecure-change-me-stargazer')
 
 DEBUG = env('DEBUG')
 
+REDIS_URL = env('REDIS_URL', default='redis://redis:6379/0')
+
 ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['localhost', '127.0.0.1', 'web'])
 
 # Application definition
@@ -40,6 +42,7 @@ AUTH_USER_MODEL = 'accounts.User'
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'config.middleware.CorrelationIdMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -163,15 +166,22 @@ LOGGING = {
             'format': '%(asctime)s %(levelname)s %(name)s %(message)s %(correlation_id)s',
         },
     },
+    'filters': {
+        'correlation_id': {
+            '()': 'config.logging_utils.CorrelationIdFilter',
+        },
+    },
     'handlers': {
         'logstash': {
             'level': 'DEBUG',
             'class': 'logging.handlers.SocketHandler',
             'host': 'logstash',
             'port': 5000,
+            'filters': ['correlation_id'],
         },
         'console': {
             'class': 'logging.StreamHandler',
+            'filters': ['correlation_id'],
         },
     },
     'root': {
