@@ -1,0 +1,73 @@
+services:
+  db:
+    image: timescale/timescaledb:latest-pg15
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=sysroar
+      - POSTGRES_USER=sysroar_user
+      - POSTGRES_PASSWORD=sysroar_password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sysroar_user -d sysroar"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build: .
+    volumes:
+      - .:/app
+    environment:
+      - DEBUG=True
+      - DATABASE_URL=postgres://sysroar_user:sysroar_password@db:5432/sysroar
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: python manage.py runserver 0.0.0.0:8000
+
+  celery_worker:
+    build: .
+    volumes:
+      - .:/app
+    environment:
+      - DATABASE_URL=postgres://sysroar_user:sysroar_password@db:5432/sysroar
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A config worker --loglevel=info
+
+  celery_beat:
+    build: .
+    volumes:
+      - .:/app
+    environment:
+      - DATABASE_URL=postgres://sysroar_user:sysroar_password@db:5432/sysroar
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A config beat --loglevel=info
+
+volumes:
+  postgres_data:
