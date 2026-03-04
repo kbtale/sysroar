@@ -19,7 +19,13 @@ class TelemetryIngestView(APIView):
         serializer = MetricLogSerializer(data=request.data)
         if serializer.is_valid():
             try:
-                push_to_redis_queue(serializer.validated_data)
+                # Make sure timestamp is set if not provided by the agent
+                data = serializer.validated_data
+                if not data.get('timestamp'):
+                    from django.utils import timezone
+                    data['timestamp'] = timezone.now()
+                
+                push_to_redis_queue(data)
                 
                 return Response(
                     {"status": "accepted", "message": "Telemetry queued for processing."},

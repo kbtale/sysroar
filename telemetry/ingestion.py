@@ -11,8 +11,11 @@ TELEMETRY_QUEUE_KEY = "sysroar:telemetry_queue"
 
 class UUIDEncoder(json.JSONEncoder):
     def default(self, obj):
+        import datetime
         if isinstance(obj, uuid.UUID):
             return str(obj)
+        if isinstance(obj, (datetime.datetime, datetime.date)):
+            return obj.isoformat()
         return super().default(obj)
 
 def push_to_redis_queue(telemetry_data: dict):
@@ -30,17 +33,22 @@ def push_to_redis_queue(telemetry_data: dict):
 
 def pop_batch(batch_size: int = 1000):
     """
-    Atomically retrieves a batch of telemetry data from the Redis queue.
+    Atomically retrieves and removes a batch of telemetry data from the Redis queue.
+    Ensures safe horizontal scaling across multiple concurrent workers.
+    """
+    lua_script = """
+    local key = KEYS[1]
+    local batch_size = tonumber(ARGV[1])
+    local items = redis.call('LRANGE', key, 0, batch_size - 1)
+    redis.call('LTRIM', key, batch_size, -1)
+    return items
     """
     try:
         con = get_redis_connection("default")
-        pipe = con.pipeline()
-        pipe.lrange(TELEMETRY_QUEUE_KEY, 0, batch_size - 1)
-        pipe.ltrim(TELEMETRY_QUEUE_KEY, batch_size, -1)
-        results = pipe.execute()
-        
-        # results[0] contains the list of payloads
-        return [json.loads(p) for p in results[0]]
+        results = con.eval(lua_script, 1, TELEMETRY_QUEUE_KEY, batch_size)
+        if not results:
+            return []
+        return [json.loads(p) for p in results]
     except Exception as e:
         logger.error(f"Failed to pop batch from Redis: {e}", exc_info=True)
         return []
