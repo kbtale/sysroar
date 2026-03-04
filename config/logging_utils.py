@@ -1,17 +1,18 @@
-import contextvars
+from asgiref.local import Local
 import uuid
 import logging
 
-_correlation_id_ctx = contextvars.ContextVar("correlation_id", default=None)
+_locals = Local()
 
 def get_correlation_id():
-    return _correlation_id_ctx.get()
+    return getattr(_locals, "correlation_id", None)
 
 def set_correlation_id(correlation_id):
-    _correlation_id_ctx.set(correlation_id)
+    _locals.correlation_id = correlation_id
 
 def clear_correlation_id():
-    _correlation_id_ctx.set(None)
+    if hasattr(_locals, "correlation_id"):
+        del _locals.correlation_id
 
 class CorrelationIdFilter(logging.Filter):
     """

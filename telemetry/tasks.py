@@ -29,8 +29,14 @@ def process_telemetry_batch():
 
     if logs_to_create:
         try:
-            MetricLog.objects.bulk_create(logs_to_create)
-            logger.info(f"Successfully persisted batch of {len(logs_to_create)} metrics to PostgreSQL.")
+            created_instances = MetricLog.objects.bulk_create(logs_to_create)
+            logger.info(f"Successfully persisted batch of {len(created_instances)} metrics to PostgreSQL.")
+            
+            # Trigger evaluation for the newly created IDs
+            from monitoring.tasks import evaluate_metrics_batch
+            new_ids = [str(log.id) for log in created_instances]
+            evaluate_metrics_batch.delay(new_ids)
+            
         except Exception as e:
             logger.error(f"Critical failure during bulk_create: {e}", exc_info=True)
             raise

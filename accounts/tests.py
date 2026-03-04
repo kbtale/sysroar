@@ -64,7 +64,7 @@ class TenantIsolationTests(TestCase):
     def test_system_user_access(self):
         """
         Verify that a user without a company (or a background task)
-        can see all data, assuming we want system admins to have global view.
+        can see all data for global system administration.
         """
         middleware = CurrentTenantMiddleware(get_response=lambda r: r)
         request_sys = self.factory.get('/')
