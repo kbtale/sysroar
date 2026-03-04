@@ -1,6 +1,8 @@
 import logging
+from django.db import transaction
 from celery import shared_task
-from .models import AlertRule, Server
+from .models import AlertRule, Server, ServerAlertState
+from .state_machine import AlertStateMachine
 from telemetry.models import MetricLog
 
 logger = logging.getLogger(__name__)
@@ -14,11 +16,9 @@ def evaluate_metrics_batch(metric_log_ids):
     if not logs:
         return
     
-    # Pre-fetch rules for these servers to avoid N+1
     server_ids = {log.server_id for log in logs}
     rules = AlertRule.objects.filter(server_id__in=server_ids, is_active=True)
     
-    # Organize rules by server for quick lookup
     rules_by_server = {}
     for rule in rules:
         if rule.server_id not in rules_by_server:
@@ -27,6 +27,8 @@ def evaluate_metrics_batch(metric_log_ids):
 
     for log in logs:
         server_rules = rules_by_server.get(log.server_id, [])
+        is_breached = False
+        
         for rule in server_rules:
             value = None
             if rule.metric_type == 'cpu':
@@ -38,3 +40,34 @@ def evaluate_metrics_batch(metric_log_ids):
 
             if value is not None and value > rule.threshold_value:
                 logger.info(f"Threshold breached: {rule} on {log.server.name} ({rule.metric_type}: {value} > {rule.threshold_value})")
+                is_breached = True
+                break # One breach is enough to trigger the state machine for this payload
+
+        if is_breached:
+            handle_server_breach(log.server_id)
+
+def handle_server_breach(server_id):
+    """
+    Manages the alert state for a server when a breach is detected.
+    Uses row-level locking to prevent concurrent workers from sending duplicate alerts.
+    """
+    with transaction.atomic():
+        # Lock the state row for this server
+        state, created = ServerAlertState.objects.select_for_update().get_or_create(
+            server_id=server_id,
+            defaults={'company_id': Server.objects.get(id=server_id).company_id}
+        )
+        
+        # Reset consecutive healthy count as a breach occurred
+        state.consecutive_healthy_count = 0
+        
+        if AlertStateMachine.should_fire_alert(state):
+            dispatch_alert_notification(state)
+        else:
+            state.save() # Still save to update consecutive_healthy_count
+
+def dispatch_alert_notification(state):
+    """
+    Place-holder for actual notification dispatch (email, slack, etc).
+    """
+    logger.info(f"DISPATCHING ALERT: Server {state.server.name} is in breach (Tier {state.current_cooldown_tier})")
