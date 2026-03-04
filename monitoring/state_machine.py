@@ -37,6 +37,24 @@ class AlertStateMachine:
         return False
 
     @classmethod
+    def record_healthy_signal(cls, state_instance):
+        """
+        Increments the healthy counter. Resets alert tier if threshold is met.
+        Returns True if a resolution occurred, False otherwise.
+        """
+        state_instance.consecutive_healthy_count += 1
+        
+        # Reset to Tier 0 if 6 consecutive healthy payloads received
+        if state_instance.consecutive_healthy_count >= 6 and state_instance.current_cooldown_tier > 0:
+            state_instance.current_cooldown_tier = 0
+            state_instance.consecutive_healthy_count = 0
+            state_instance.save()
+            return True
+        
+        state_instance.save()
+        return False
+
+    @classmethod
     def _update_state(cls, state_instance, timestamp):
         """
         Progresses the state machine to the next tier and updates timestamp.

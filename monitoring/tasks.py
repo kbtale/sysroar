@@ -45,6 +45,8 @@ def evaluate_metrics_batch(metric_log_ids):
 
         if is_breached:
             handle_server_breach(log.server_id)
+        else:
+            handle_server_healthy(log.server_id)
 
 def handle_server_breach(server_id):
     """
@@ -58,16 +60,35 @@ def handle_server_breach(server_id):
             defaults={'company_id': Server.objects.get(id=server_id).company_id}
         )
         
-        # Reset consecutive healthy count as a breach occurred
+        # Reset consecutive healthy count IMMEDIATELY - an anomaly stops the recovery process
         state.consecutive_healthy_count = 0
         
         if AlertStateMachine.should_fire_alert(state):
             dispatch_alert_notification(state)
         else:
-            state.save() # Still save to update consecutive_healthy_count
+            state.save()
+
+def handle_server_healthy(server_id):
+    """
+    Increments the healthy counter and checks for alert resolution.
+    """
+    with transaction.atomic():
+        state, created = ServerAlertState.objects.select_for_update().get_or_create(
+            server_id=server_id,
+            defaults={'company_id': Server.objects.get(id=server_id).company_id}
+        )
+        
+        if AlertStateMachine.record_healthy_signal(state):
+            dispatch_resolution_notification(state)
 
 def dispatch_alert_notification(state):
     """
     Place-holder for actual notification dispatch (email, slack, etc).
     """
     logger.info(f"DISPATCHING ALERT: Server {state.server.name} is in breach (Tier {state.current_cooldown_tier})")
+
+def dispatch_resolution_notification(state):
+    """
+    Place-holder for actual resolution dispatch.
+    """
+    logger.info(f"RESOLVED: Server {state.server.name} has returned to a healthy state after 6 consecutive signals.")
