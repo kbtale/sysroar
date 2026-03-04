@@ -1,6 +1,7 @@
 import uuid
 from django.db import models
 from django.contrib.auth.models import AbstractUser
+from .managers import TenantManager
 
 
 class Company(models.Model):
@@ -47,6 +48,8 @@ class TenantModel(models.Model):
         on_delete=models.CASCADE,
         related_name="%(class)s_data"
     )
+    
+    objects = TenantManager()
 
     class Meta:
         abstract = True

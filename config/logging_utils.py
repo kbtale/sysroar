@@ -1,18 +1,17 @@
-import threading
+import contextvars
 import uuid
 import logging
 
-_locals = threading.local()
+_correlation_id_ctx = contextvars.ContextVar("correlation_id", default=None)
 
 def get_correlation_id():
-    return getattr(_locals, "correlation_id", None)
+    return _correlation_id_ctx.get()
 
 def set_correlation_id(correlation_id):
-    _locals.correlation_id = correlation_id
+    _correlation_id_ctx.set(correlation_id)
 
 def clear_correlation_id():
-    if hasattr(_locals, "correlation_id"):
-        del _locals.correlation_id
+    _correlation_id_ctx.set(None)
 
 class CorrelationIdFilter(logging.Filter):
     """
