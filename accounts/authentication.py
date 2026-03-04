@@ -1,12 +1,12 @@
 import uuid
-from telemetry.ingestion import redis_ingestion
+from telemetry.ingestion import redis_client
 
 class WebSocketTicketManager:
     """
     Manages one-time-use tickets for secure WebSocket authentication.
     """
     def __init__(self):
-        self.redis = redis_ingestion.client
+        self.redis = redis_client
         self.prefix = "ws:ticket:"
         self.ttl = 60 # Secs
 

@@ -20,8 +20,9 @@ class CurrentTenantMiddleware:
 
     def __call__(self, request):
         if hasattr(request, 'user') and request.user.is_authenticated:
-            if getattr(request.user, 'company_id', None):
-                _thread_locals.company_id = request.user.company_id
+            comp_id = getattr(request.user, 'company_id', None)
+            if comp_id:
+                _thread_locals.company_id = comp_id
         
         try:
             return self.get_response(request)

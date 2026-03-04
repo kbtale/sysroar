@@ -1,19 +1,38 @@
-import json
 from celery import shared_task
-from .ingestion import redis_ingestion
+from .ingestion import pop_batch
+from .models import MetricLog
 import logging
 
 logger = logging.getLogger(__name__)
 
-@shared_task(name="telemetry.process_batches")
-def process_telemetry_batches():
+@shared_task(name="telemetry.process_telemetry_batch")
+def process_telemetry_batch():
     """
-    Celery task that runs periodically (Write-Behind) to batch create 
-    MetricLog objects in PostgreSQL.
+    Drains the Redis queue and persists telemetry in batches to PostgreSQL.
     """
-    batch_data = redis_ingestion.get_batch(count=1000)
+    batch_data = pop_batch(batch_size=1000)
     if not batch_data:
         return 0
     
-    logger.info(f"Processed batch of {len(batch_data)} telemetry items.")
-    return len(batch_data)
+    logs_to_create = []
+    for data in batch_data:
+        try:
+            if 'server' in data and 'server_id' not in data:
+                data['server_id'] = data.pop('server')
+            
+            if 'company' in data and 'company_id' not in data:
+                data['company_id'] = data.pop('company')
+
+            logs_to_create.append(MetricLog(**data))
+        except Exception as e:
+            logger.warning(f"Skipping malformed telemetry record: {e}")
+
+    if logs_to_create:
+        try:
+            MetricLog.objects.bulk_create(logs_to_create)
+            logger.info(f"Successfully persisted batch of {len(logs_to_create)} metrics to PostgreSQL.")
+        except Exception as e:
+            logger.error(f"Critical failure during bulk_create: {e}", exc_info=True)
+            raise
+
+    return len(logs_to_create)
