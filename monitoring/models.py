@@ -11,6 +11,8 @@ class Server(TenantModel):
     ip_address = models.GenericIPAddressField(null=True, blank=True)
     os_info = models.CharField(max_length=255, null=True, blank=True)
     is_active = models.BooleanField(default=True)
+    telemetry_cadence = models.PositiveIntegerField(default=30, help_text="Push frequency in seconds.")
+    log_level = models.CharField(max_length=20, default="INFO", help_text="Agent logging level.")
     last_ping = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
