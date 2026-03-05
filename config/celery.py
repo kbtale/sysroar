@@ -30,6 +30,3 @@ def task_postrun_handler(task_id, task, *args, **kwargs):
     from .logging_utils import clear_correlation_id
     clear_correlation_id()
 
-@app.task(bind=True, ignore_result=True)
-def debug_task(self):
-    print(f'Request: {self.request!r}')

@@ -4,6 +4,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 from accounts.authentication import ticket_manager
 from .logging_utils import set_correlation_id, clear_correlation_id
+from asgiref.sync import sync_to_async
 
 User = get_user_model()
 
@@ -32,7 +33,7 @@ class WebSocketTicketMiddleware:
                 break
         
         if ticket:
-            user_id = ticket_manager.consume_ticket(ticket)
+            user_id = await sync_to_async(ticket_manager.consume_ticket)(ticket)
             if user_id:
                 scope['user'] = await get_user(user_id)
             else:

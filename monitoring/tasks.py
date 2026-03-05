@@ -12,12 +12,12 @@ def evaluate_metrics_batch(metric_log_ids):
     """
     Evaluates a batch of metric logs against configured alert rules.
     """
-    logs = MetricLog.objects.filter(id__in=metric_log_ids).select_related('server')
+    logs = MetricLog.unscoped.filter(id__in=metric_log_ids).select_related('server')
     if not logs:
         return
     
     server_ids = {log.server_id for log in logs}
-    rules = AlertRule.objects.filter(server_id__in=server_ids, is_active=True)
+    rules = AlertRule.unscoped.filter(server_id__in=server_ids, is_active=True)
     
     rules_by_server = {}
     for rule in rules:
@@ -55,9 +55,9 @@ def handle_server_breach(server_id):
     """
     with transaction.atomic():
         # Lock the state row for this server
-        state, created = ServerAlertState.objects.select_for_update().get_or_create(
+        state, created = ServerAlertState.unscoped.select_for_update().get_or_create(
             server_id=server_id,
-            defaults={'company_id': Server.objects.get(id=server_id).company_id}
+            defaults={'company_id': Server.unscoped.get(id=server_id).company_id}
         )
         
         # Reset consecutive healthy count IMMEDIATELY - an anomaly stops the recovery process
@@ -73,9 +73,9 @@ def handle_server_healthy(server_id):
     Increments the healthy counter and checks for alert resolution.
     """
     with transaction.atomic():
-        state, created = ServerAlertState.objects.select_for_update().get_or_create(
+        state, created = ServerAlertState.unscoped.select_for_update().get_or_create(
             server_id=server_id,
-            defaults={'company_id': Server.objects.get(id=server_id).company_id}
+            defaults={'company_id': Server.unscoped.get(id=server_id).company_id}
         )
         
         if AlertStateMachine.record_healthy_signal(state):

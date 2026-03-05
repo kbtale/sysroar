@@ -1,0 +1,12 @@
+.git
+.env
+*.md
+celerybeat-*
+__pycache__
+*.pyc
+agent/
+docs/
+.vscode/
+.idea/
+.docker_volumes/
+*.db

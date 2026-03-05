@@ -3,12 +3,13 @@ services:
     image: timescale/timescaledb:latest-pg15
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    env_file: .env
     environment:
-      - POSTGRES_DB=sysroar
-      - POSTGRES_USER=sysroar_user
-      - POSTGRES_PASSWORD=sysroar_password
+      - POSTGRES_DB=${DB_NAME:-sysroar}
+      - POSTGRES_USER=${DB_USER:-sysroar_user}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-sysroar_password}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U sysroar_user -d sysroar"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-sysroar_user} -d ${DB_NAME:-sysroar}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -25,11 +26,12 @@ services:
     build: .
     volumes:
       - .:/app
+    env_file: .env
     environment:
-      - DEBUG=True
-      - DATABASE_URL=postgres://sysroar_user:sysroar_password@db:5432/sysroar
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/1
+      - DEBUG=${DEBUG:-True}
+      - DATABASE_URL=postgres://${DB_USER:-sysroar_user}:${DB_PASSWORD:-sysroar_password}@db:5432/${DB_NAME:-sysroar}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/1}
     ports:
       - "8000:8000"
     depends_on:
@@ -43,10 +45,11 @@ services:
     build: .
     volumes:
       - .:/app
+    env_file: .env
     environment:
-      - DATABASE_URL=postgres://sysroar_user:sysroar_password@db:5432/sysroar
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/1
+      - DATABASE_URL=postgres://${DB_USER:-sysroar_user}:${DB_PASSWORD:-sysroar_password}@db:5432/${DB_NAME:-sysroar}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/1}
     depends_on:
       db:
         condition: service_healthy
@@ -58,26 +61,17 @@ services:
     build: .
     volumes:
       - .:/app
+    env_file: .env
     environment:
-      - DATABASE_URL=postgres://sysroar_user:sysroar_password@db:5432/sysroar
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/1
+      - DATABASE_URL=postgres://${DB_USER:-sysroar_user}:${DB_PASSWORD:-sysroar_password}@db:5432/${DB_NAME:-sysroar}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/1}
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
     command: celery -A config beat --loglevel=info
-
-  logstash:
-    image: docker.elastic.co/logstash/logstash:8.11.1
-    ports:
-      - "5000:5000/tcp"
-      - "5000:5000/udp"
-    volumes:
-      - ./logstash/pipeline:/usr/share/logstash/pipeline
-    environment:
-      - LS_JAVA_OPTS=-Xms256m -Xmx256m
 
 volumes:
   postgres_data:

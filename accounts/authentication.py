@@ -21,12 +21,11 @@ class WebSocketTicketManager:
 
     def consume_ticket(self, ticket: str) -> str:
         """
-        Retrieves the user ID for a ticket and deletes it immediately.
+        Atomically retrieves and deletes a one-time ticket.
+        Uses GETDEL to prevent race conditions with concurrent connections.
         """
         key = f"{self.prefix}{ticket}"
-        user_id = self.redis.get(key)
-        if user_id:
-            self.redis.delete(key)
+        user_id = self.redis.getdel(key)
         return user_id
 
 ticket_manager = WebSocketTicketManager()

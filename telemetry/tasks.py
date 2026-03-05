@@ -1,5 +1,5 @@
 from celery import shared_task
-from .ingestion import pop_batch
+from .ingestion import pop_batch, ack_batch, nack_batch
 from .models import MetricLog
 import logging
 
@@ -29,7 +29,8 @@ def process_telemetry_batch():
 
     if logs_to_create:
         try:
-            created_instances = MetricLog.objects.bulk_create(logs_to_create)
+            created_instances = MetricLog.unscoped.bulk_create(logs_to_create)
+            ack_batch()
             logger.info(f"Successfully persisted batch of {len(created_instances)} metrics to PostgreSQL.")
             
             # Trigger evaluation for the newly created IDs
@@ -38,6 +39,7 @@ def process_telemetry_batch():
             evaluate_metrics_batch.delay(new_ids)
             
         except Exception as e:
+            nack_batch()
             logger.error(f"Critical failure during bulk_create: {e}", exc_info=True)
             raise
 

@@ -54,7 +54,7 @@ class TelemetryConfigView(APIView):
             return Response({"error": "X-Server-ID header is required"}, status=status.HTTP_400_BAD_REQUEST)
         
         try:
-            server = Server.objects.get(id=server_id)
+            server = Server.unscoped.filter(company=request.user.company).get(id=server_id)
             config = {
                 "telemetry_cadence": server.telemetry_cadence,
                 "log_level": server.log_level

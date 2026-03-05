@@ -15,7 +15,7 @@ class MetricLog(TenantModel):
     # Core Metrics
     cpu_usage = models.FloatField(help_text="CPU Usage Percentage")
     ram_usage = models.FloatField(help_text="RAM Usage Percentage")
-    disk_io = models.FloatField(help_text="Disk I/O Wait Percentage", null=True, blank=True)
+    disk_io = models.FloatField(help_text="Disk I/O Throughput (MB)", null=True, blank=True)
 
     class Meta:
         # Compound index for fast charting and querying by tenant and time

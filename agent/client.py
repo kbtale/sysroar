@@ -3,10 +3,11 @@ import time
 import json
 import logging
 import logging.handlers
+import threading
 import psutil
 import requests
 from dotenv import load_dotenv
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Load configuration from .env file if it exists
 load_dotenv()
@@ -81,13 +82,13 @@ class TelemetryCollector:
             "cpu_usage": float(cpu_usage),
             "ram_usage": float(ram_usage),
             "disk_io": float(disk_throughput_mb),
-            "timestamp": datetime.utcnow().isoformat() + "Z"
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
 
 def push_telemetry(payload):
     headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {API_TOKEN}"
+        "Authorization": f"Token {API_TOKEN}"
     }
     
     try:
@@ -104,7 +105,7 @@ def fetch_configuration():
     Fetches the latest server-side configuration.
     """
     headers = {
-        "Authorization": f"Bearer {API_TOKEN}",
+        "Authorization": f"Token {API_TOKEN}",
         "X-Server-ID": SERVER_ID
     }
     try:
@@ -136,7 +137,6 @@ def run_agent():
         return
 
     # Start configuration polling in a background thread
-    import threading
     config_thread = threading.Thread(target=config_polling_loop, daemon=True)
     config_thread.start()
 

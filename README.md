@@ -75,8 +75,31 @@ sysroar/
    ```
 
 ## Technical Stack
-- **Framework**: Django 5.x, Django REST Framework
+- **Framework**: Django 6.x, Django REST Framework
 - **Task Queue**: Celery & Redis
-- **Database**: PostgreSQL
+- **Database**: PostgreSQL (TimescaleDB)
 - **Monitoring**: psutil
-- **Observability**: Custom Correlation ID Middleware, JSON Logging
+- **Observability**: ELK Stack, Custom Correlation ID Middleware, JSON Logging
+
+## ELK Stack (Optional)
+
+The ELK stack (Elasticsearch, Logstash, Kibana) is provided as an optional add-on for centralized log management. To enable it:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.elk.yml up -d
+```
+
+## ⚠️ Security Considerations
+
+> **Before deploying to production, you MUST address the following:**
+
+| Item | Default (Dev) | Required (Prod) |
+|---|---|---|
+| Elasticsearch `xpack.security` | `false` | `true` — enable TLS and authentication |
+| Database credentials | Defaults in `.env.example` | Strong, unique passwords |
+| Django `SECRET_KEY` | Insecure default | Cryptographically random value |
+| Django `DEBUG` | `True` | `False` |
+| `ALLOWED_HOSTS` | `localhost` | Your actual domain(s) |
+| CORS origins | `localhost:3000` | Your frontend domain(s) |
+
+A Django system check (`sysroar.W001`) will warn you on every `runserver` and `migrate` if Elasticsearch security is disabled. Set `ELASTICSEARCH_SECURITY_ENABLED=true` in your `.env` to suppress this warning after enabling security.
