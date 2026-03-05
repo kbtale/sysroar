@@ -18,37 +18,33 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Backend Configuration
-# Use environment variables for sensitive or variable configuration
 API_URL = os.getenv("SYSROAR_API_URL", "http://localhost:8000/api/telemetry/ingest/")
+CONFIG_URL = os.getenv("SYSROAR_CONFIG_URL", "http://localhost:8000/api/telemetry/config/")
 API_TOKEN = os.getenv("SYSROAR_API_TOKEN")
 SERVER_ID = os.getenv("SYSROAR_SERVER_ID")
 COMPANY_ID = os.getenv("SYSROAR_COMPANY_ID")
-TELEMETRY_CADENCE = int(os.getenv("SYSROAR_TELEMETRY_CADENCE", 30))
+
+# Global settings that can be updated dynamically
+settings = {
+    "telemetry_cadence": int(os.getenv("SYSROAR_TELEMETRY_CADENCE", 30)),
+    "log_level": "INFO"
+}
 
 class TelemetryCollector:
     def __init__(self):
-        # Initial call to cpu_percent to establish a baseline
         psutil.cpu_percent(interval=None)
         self.last_disk_io = psutil.disk_io_counters()
 
     def collect(self):
-        """
-        Gathers system-level telemetry using psutil.
-        """
-        # CPU
         cpu_usage = psutil.cpu_percent(interval=None)
-        
-        # RAM
         memory = psutil.virtual_memory()
         ram_usage = memory.percent
         
-        # Disk I/O (Calculate delta since last collection)
         current_disk_io = psutil.disk_io_counters()
         read_bytes = current_disk_io.read_bytes - self.last_disk_io.read_bytes
         write_bytes = current_disk_io.write_bytes - self.last_disk_io.write_bytes
         self.last_disk_io = current_disk_io
         
-        # Aggregate bytes for simple "disk usage" metric or store as throughput
         disk_throughput_mb = (read_bytes + write_bytes) / (1024 * 1024)
 
         return {
@@ -61,9 +57,6 @@ class TelemetryCollector:
         }
 
 def push_telemetry(payload):
-    """
-    Sends the collected telemetry to the SysRoar backend.
-    """
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {API_TOKEN}"
@@ -78,26 +71,58 @@ def push_telemetry(payload):
     except Exception as e:
         logger.error(f"Failed to connect to backend: {e}")
 
+def fetch_configuration():
+    """
+    Fetches the latest server-side configuration.
+    """
+    headers = {
+        "Authorization": f"Bearer {API_TOKEN}",
+        "X-Server-ID": SERVER_ID
+    }
+    try:
+        response = requests.get(CONFIG_URL, headers=headers, timeout=10)
+        if response.status_code == 200:
+            new_config = response.json()
+            settings.update(new_config)
+            logger.info(f"Configuration synchronized: {settings}")
+            
+            # Apply log level if it changed
+            if "log_level" in new_config:
+                logging.getLogger().setLevel(new_config["log_level"])
+        else:
+            logger.warning(f"Failed to fetch config: {response.status_code}")
+    except Exception as e:
+        logger.error(f"Error fetching configuration: {e}")
+
+def config_polling_loop():
+    """
+    Background loop that polls for configuration every hour.
+    """
+    while True:
+        fetch_configuration()
+        time.sleep(3600) # Poll every 1 hour
+
 def run_agent():
-    """
-    Main loop for the telemetry agent.
-    """
     if not all([API_TOKEN, SERVER_ID, COMPANY_ID]):
-        logger.error("Missing mandatory environment variables (TOKEN, SERVER_ID, or COMPANY_ID).")
+        logger.error("Missing mandatory environment variables.")
         return
 
-    logger.info(f"Starting SysRoar Remote Agent. Cadence: {TELEMETRY_CADENCE}s")
+    # Start configuration polling in a background thread
+    import threading
+    config_thread = threading.Thread(target=config_polling_loop, daemon=True)
+    config_thread.start()
+
+    logger.info(f"Starting SysRoar Remote Agent.")
     collector = TelemetryCollector()
 
     while True:
         try:
             payload = collector.collect()
-            logger.debug(f"Collected payload: {json.dumps(payload)}")
             push_telemetry(payload)
         except Exception as e:
             logger.error(f"Error in telemetry loop: {e}")
         
-        time.sleep(TELEMETRY_CADENCE)
+        time.sleep(settings["telemetry_cadence"])
 
 if __name__ == "__main__":
     run_agent()

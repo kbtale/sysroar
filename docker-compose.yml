@@ -69,5 +69,15 @@ services:
         condition: service_healthy
     command: celery -A config beat --loglevel=info
 
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.11.1
+    ports:
+      - "5000:5000/tcp"
+      - "5000:5000/udp"
+    volumes:
+      - ./logstash/pipeline:/usr/share/logstash/pipeline
+    environment:
+      - LS_JAVA_OPTS=-Xms256m -Xmx256m
+
 volumes:
   postgres_data:

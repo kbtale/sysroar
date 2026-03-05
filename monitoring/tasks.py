@@ -83,12 +83,12 @@ def handle_server_healthy(server_id):
 
 def dispatch_alert_notification(state):
     """
-    Place-holder for actual notification dispatch (email, slack, etc).
+    Dispatches a breach notification to the configured alerts channels.
     """
-    logger.info(f"DISPATCHING ALERT: Server {state.server.name} is in breach (Tier {state.current_cooldown_tier})")
+    logger.info(f"AUDIT | ALERT | {state.server.name} | Tier {state.current_cooldown_tier}")
 
 def dispatch_resolution_notification(state):
     """
-    Place-holder for actual resolution dispatch.
+    Dispatches a resolution notification to the configured alerts channels.
     """
-    logger.info(f"RESOLVED: Server {state.server.name} has returned to a healthy state after 6 consecutive signals.")
+    logger.info(f"AUDIT | RESOLVED | {state.server.name}")

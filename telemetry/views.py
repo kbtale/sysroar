@@ -39,3 +39,26 @@ class TelemetryIngestView(APIView):
                 )
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+from monitoring.models import Server
+
+class TelemetryConfigView(APIView):
+    """
+    Returns dynamic configuration for remote agents.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        server_id = request.headers.get('X-Server-ID')
+        if not server_id:
+            return Response({"error": "X-Server-ID header is required"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            server = Server.objects.get(id=server_id)
+            config = {
+                "telemetry_cadence": server.telemetry_cadence,
+                "log_level": server.log_level
+            }
+            return Response(config, status=status.HTTP_200_OK)
+        except Server.DoesNotExist:
+            return Response({"error": "Server not found"}, status=status.HTTP_404_NOT_FOUND)
