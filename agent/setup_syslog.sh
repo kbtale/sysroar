@@ -5,12 +5,19 @@
 
 LOGSTASH_HOST=${1:-"localhost"}
 LOGSTASH_PORT=${2:-"5000"}
+SYSROAR_SERVER_ID=${3:-"unknown"}
 
-echo "Configuring rsyslog to forward to ${LOGSTASH_HOST}:${LOGSTASH_PORT}..."
+if [ "$SYSROAR_SERVER_ID" == "unknown" ]; then
+    echo "WARNING: No Server ID provided. Logs will not be tagged correctly. Usage: $0 <host> <port> <server_id>"
+fi
+
+echo "Configuring rsyslog to forward to ${LOGSTASH_HOST}:${LOGSTASH_PORT} with Server ID: ${SYSROAR_SERVER_ID}..."
 
 # Create a new rsyslog configuration file
 cat <<EOF | sudo tee /etc/rsyslog.d/99-sysroar.conf
-*.* @${LOGSTASH_HOST}:${LOGSTASH_PORT}
+# Tag all forwarded messages with the SysRoar server identifier
+\$template SysRoarFormat,"<%pri%>%timestamp% sysroar-${SYSROAR_SERVER_ID} %syslogtag%%msg%\n"
+*.* @${LOGSTASH_HOST}:${LOGSTASH_PORT};SysRoarFormat
 EOF
 
 # Restart rsyslog to apply changes

@@ -2,6 +2,7 @@ import os
 import time
 import json
 import logging
+import logging.handlers
 import psutil
 import requests
 from dotenv import load_dotenv
@@ -10,12 +11,6 @@ from datetime import datetime
 # Load configuration from .env file if it exists
 load_dotenv()
 
-# Logging configuration
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
 
 # Backend Configuration
 API_URL = os.getenv("SYSROAR_API_URL", "http://localhost:8000/api/telemetry/ingest/")
@@ -24,11 +19,44 @@ API_TOKEN = os.getenv("SYSROAR_API_TOKEN")
 SERVER_ID = os.getenv("SYSROAR_SERVER_ID")
 COMPANY_ID = os.getenv("SYSROAR_COMPANY_ID")
 
+# Logstash Configuration
+LOGSTASH_HOST = os.getenv("SYSROAR_LOGSTASH_HOST", "localhost")
+LOGSTASH_PORT = int(os.getenv("SYSROAR_LOGSTASH_PORT", 5000))
+
 # Global settings that can be updated dynamically
 settings = {
     "telemetry_cadence": int(os.getenv("SYSROAR_TELEMETRY_CADENCE", 30)),
     "log_level": "INFO"
 }
+
+# Logger setup
+logger = logging.getLogger("sysroar-agent")
+logger.setLevel(logging.INFO)
+
+# Console handler (always active)
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+logger.addHandler(console_handler)
+
+def configure_syslog_handler(host, port, server_id):
+    """
+    Attaches a SysLogHandler to the agent logger.
+    Returns the handler on success, or None if the connection fails.
+    """
+    try:
+        handler = logging.handlers.SysLogHandler(address=(host, port))
+        handler.setFormatter(
+            logging.Formatter(f'sysroar-agent[{server_id}]: %(levelname)s %(message)s')
+        )
+        logger.addHandler(handler)
+        return handler
+    except Exception as e:
+        logger.warning(f"Syslog handler could not connect: {e}. Logs will only go to stdout.")
+        return None
+
+# Initialize syslog handler at startup
+configure_syslog_handler(LOGSTASH_HOST, LOGSTASH_PORT, SERVER_ID)
+
 
 class TelemetryCollector:
     def __init__(self):
