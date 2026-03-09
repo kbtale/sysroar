@@ -61,7 +61,11 @@ def process_telemetry_batch():
             
         except Exception as e:
             nack_batch()
-            logger.error(f"Critical failure during bulk_create: {e}", exc_info=True)
+            logger.error(
+                f"METRIC_PERSISTENCE_FAILURE | Critical failure during bulk_create: {e}. "
+                f"Batch Size: {len(logs_to_create)}",
+                exc_info=True
+            )
             raise
 
     return len(logs_to_create)

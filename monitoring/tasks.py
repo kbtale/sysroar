@@ -1,5 +1,5 @@
 import logging
-from django.db import transaction
+from django.db import transaction, DatabaseError
 from celery import shared_task
 from .models import AlertRule, Server, ServerAlertState
 from .state_machine import AlertStateMachine
@@ -59,37 +59,45 @@ def handle_server_breach(server_id, breached_rules_with_context):
     Manages the alert state for a server when a breach is detected.
     Uses row-level locking to prevent concurrent workers from sending duplicate alerts.
     """
-    with transaction.atomic():
-        # Lock the state row for this server
-        server = Server.unscoped.get(id=server_id)
-        state, created = ServerAlertState.unscoped.select_for_update().get_or_create(
-            server_id=server_id,
-            defaults={'company_id': server.company_id}
-        )
-        
-        # Reset consecutive healthy count IMMEDIATELY - an anomaly stops the recovery process
-        state.consecutive_healthy_count = 0
-        
-        if AlertStateMachine.should_fire_alert(state):
-            dispatch_alert_notifications(server, breached_rules_with_context)
-        else:
-            state.save()
+    try:
+        with transaction.atomic():
+            # Lock the state row for this server
+            server = Server.unscoped.get(id=server_id)
+            state, created = ServerAlertState.unscoped.select_for_update().get_or_create(
+                server_id=server_id,
+                defaults={'company_id': server.company_id}
+            )
+            
+            # Reset consecutive healthy count - an anomaly stops the recovery process
+            state.consecutive_healthy_count = 0
+            
+            if AlertStateMachine.should_fire_alert(state):
+                dispatch_alert_notifications(server, breached_rules_with_context)
+            else:
+                state.save()
+    except DatabaseError as e:
+        logger.error(f"POSTGRES_TRANSACTION_ROLLBACK | Failed to update alert state for server {server_id}: {str(e)}", exc_info=True)
+        raise
 
 def handle_server_healthy(server_id):
     """
     Increments the healthy counter and checks for alert resolution.
     """
-    with transaction.atomic():
-        server = Server.unscoped.get(id=server_id)
-        state, created = ServerAlertState.unscoped.select_for_update().get_or_create(
-            server_id=server_id,
-            defaults={'company_id': server.company_id}
-        )
-        
-        if AlertStateMachine.record_healthy_signal(state):
-            # When resolved, notify ALL active rules for this server
-            rules = AlertRule.unscoped.filter(server=server, is_active=True)
-            dispatch_resolution_notifications(server, rules)
+    try:
+        with transaction.atomic():
+            server = Server.unscoped.get(id=server_id)
+            state, created = ServerAlertState.unscoped.select_for_update().get_or_create(
+                server_id=server_id,
+                defaults={'company_id': server.company_id}
+            )
+            
+            if AlertStateMachine.record_healthy_signal(state):
+                # When resolved, notify ALL active rules for this server
+                rules = AlertRule.unscoped.filter(server=server, is_active=True)
+                dispatch_resolution_notifications(server, rules)
+    except DatabaseError as e:
+        logger.error(f"POSTGRES_TRANSACTION_ROLLBACK | Failed to record healthy signal for server {server_id}: {str(e)}", exc_info=True)
+        raise
 
 def dispatch_alert_notifications(server, breached_rules_with_context):
     """

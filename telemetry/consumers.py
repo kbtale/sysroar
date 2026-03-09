@@ -22,9 +22,11 @@ class ServerTelemetryConsumer(AsyncWebsocketConsumer):
             ).aexists()
             
             if not server_exists:
+                logger.error(f"WS_AUTH_FAILURE | Unauthorized access attempt to server {self.server_id} by user {self.user.id}")
                 await self.close()
                 return
-        except Exception:
+        except Exception as e:
+            logger.error(f"WS_ERROR | Unexpected error during WebSocket auth for server {self.server_id}: {str(e)}")
             await self.close()
             return
 
