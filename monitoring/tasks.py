@@ -4,6 +4,7 @@ from celery import shared_task
 from .models import AlertRule, Server, ServerAlertState
 from .state_machine import AlertStateMachine
 from telemetry.models import MetricLog
+from telemetry.notifications.dispatcher import NotificationDispatcher
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,7 @@ def evaluate_metrics_batch(metric_log_ids):
 
     for log in logs:
         server_rules = rules_by_server.get(log.server_id, [])
-        is_breached = False
+        breached_rules_with_context = []
         
         for rule in server_rules:
             value = None
@@ -40,31 +41,37 @@ def evaluate_metrics_batch(metric_log_ids):
 
             if value is not None and value > rule.threshold_value:
                 logger.info(f"Threshold breached: {rule} on {log.server.name} ({rule.metric_type}: {value} > {rule.threshold_value})")
-                is_breached = True
-                break # One breach is enough to trigger the state machine for this payload
+                breached_rules_with_context.append({
+                    'rule': rule,
+                    'context': {
+                        'value': value,
+                        'timestamp': log.timestamp.isoformat() if log.timestamp else None
+                    }
+                })
 
-        if is_breached:
-            handle_server_breach(log.server_id)
+        if breached_rules_with_context:
+            handle_server_breach(log.server_id, breached_rules_with_context)
         else:
             handle_server_healthy(log.server_id)
 
-def handle_server_breach(server_id):
+def handle_server_breach(server_id, breached_rules_with_context):
     """
     Manages the alert state for a server when a breach is detected.
     Uses row-level locking to prevent concurrent workers from sending duplicate alerts.
     """
     with transaction.atomic():
         # Lock the state row for this server
+        server = Server.unscoped.get(id=server_id)
         state, created = ServerAlertState.unscoped.select_for_update().get_or_create(
             server_id=server_id,
-            defaults={'company_id': Server.unscoped.get(id=server_id).company_id}
+            defaults={'company_id': server.company_id}
         )
         
         # Reset consecutive healthy count IMMEDIATELY - an anomaly stops the recovery process
         state.consecutive_healthy_count = 0
         
         if AlertStateMachine.should_fire_alert(state):
-            dispatch_alert_notification(state)
+            dispatch_alert_notifications(server, breached_rules_with_context)
         else:
             state.save()
 
@@ -73,22 +80,36 @@ def handle_server_healthy(server_id):
     Increments the healthy counter and checks for alert resolution.
     """
     with transaction.atomic():
+        server = Server.unscoped.get(id=server_id)
         state, created = ServerAlertState.unscoped.select_for_update().get_or_create(
             server_id=server_id,
-            defaults={'company_id': Server.unscoped.get(id=server_id).company_id}
+            defaults={'company_id': server.company_id}
         )
         
         if AlertStateMachine.record_healthy_signal(state):
-            dispatch_resolution_notification(state)
+            # When resolved, notify ALL active rules for this server
+            rules = AlertRule.unscoped.filter(server=server, is_active=True)
+            dispatch_resolution_notifications(server, rules)
 
-def dispatch_alert_notification(state):
+def dispatch_alert_notifications(server, breached_rules_with_context):
     """
-    Dispatches a breach notification to the configured alerts channels.
+    Dispatches breach notifications using the Strategy Pattern dispatcher.
     """
-    logger.info(f"AUDIT | ALERT | {state.server.name} | Tier {state.current_cooldown_tier}")
+    for item in breached_rules_with_context:
+        rule = item['rule']
+        context = item['context']
+        NotificationDispatcher.dispatch_alert(server, rule, context)
+    
+    logger.info(f"AUDIT | ALERT | {server.name} | Total Rules: {len(breached_rules_with_context)}")
 
-def dispatch_resolution_notification(state):
+def dispatch_resolution_notifications(server, rules):
     """
-    Dispatches a resolution notification to the configured alerts channels.
+    Dispatches resolution notifications for all configured rules on the server.
     """
-    logger.info(f"AUDIT | RESOLVED | {state.server.name}")
+    context = {
+        'timestamp': timezone.now().isoformat()
+    }
+    for rule in rules:
+        NotificationDispatcher.dispatch_resolution(server, rule, context)
+    
+    logger.info(f"AUDIT | RESOLVED | {server.name} | Notified {rules.count()} channels")

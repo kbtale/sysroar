@@ -29,12 +29,30 @@ class AlertRule(TenantModel):
         ('disk', 'Disk I/O Wait'),
     ]
 
+    NOTIFICATION_CHOICES = [
+        ('EMAIL', 'Email'),
+        ('WEBHOOK', 'Webhook'),
+    ]
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     server = models.ForeignKey(Server, on_delete=models.CASCADE, related_name='alert_rules')
     metric_type = models.CharField(max_length=10, choices=METRIC_CHOICES)
     threshold_value = models.FloatField(help_text="The ceiling value that triggers the alert (e.g., 90.0 for 90%).")
     duration_minutes = models.PositiveIntegerField(default=5, help_text="Sustain duration before alerting.")
     is_active = models.BooleanField(default=True)
+    
+    notification_type = models.CharField(
+        max_length=10, 
+        choices=NOTIFICATION_CHOICES, 
+        default='EMAIL',
+        help_text="The strategy used to dispatch notifications."
+    )
+    notification_target = models.CharField(
+        max_length=255, 
+        help_text="The email address or Webhook URL to send the alert to.",
+        blank=True,
+        null=True
+    )
 
     class Meta:
         unique_together = ('server', 'metric_type')
