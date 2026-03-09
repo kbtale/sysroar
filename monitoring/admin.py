@@ -12,8 +12,8 @@ class ServerAdmin(admin.ModelAdmin):
 
 @admin.register(AlertRule)
 class AlertRuleAdmin(admin.ModelAdmin):
-    list_display = ('server', 'metric_type', 'threshold_value', 'is_active')
-    list_filter = ('metric_type', 'is_active')
+    list_display = ('server', 'metric_type', 'threshold_value', 'notification_type', 'is_active')
+    list_filter = ('metric_type', 'notification_type', 'is_active')
 
 
 @admin.register(ServerAlertState)
