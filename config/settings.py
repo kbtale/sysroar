@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 import environ
+from celery.schedules import crontab
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -150,7 +151,17 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'telemetry.process_telemetry_batch',
         'schedule': 5.0,
     },
+    'hourly-telemetry-rollup': {
+        'task': 'telemetry.rollup_telemetry_data',
+        'schedule': crontab(minute=0),
+    },
+    'nightly-telemetry-purge': {
+        'task': 'telemetry.purge_old_telemetry',
+        'schedule': crontab(minute=0, hour=2),
+    },
 }
+
+TELEMETRY_RETENTION_DAYS = env.int('TELEMETRY_RETENTION_DAYS', default=7)
 
 CELERY_BEAT_SCHEDULE_FILENAME = '/tmp/celerybeat-schedule'
 
