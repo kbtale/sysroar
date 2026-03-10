@@ -19,6 +19,7 @@ class WebhookStrategy(NotificationStrategy):
         return self._dispatch(server, rule, context, "alert_resolved")
 
     def _dispatch(self, server: 'Server', rule: 'AlertRule', context: Dict, event_type: str) -> bool:
+        from monitoring.tasks import record_system_event
         payload = {
             "event": event_type,
             "server_id": str(server.id),
@@ -42,6 +43,19 @@ class WebhookStrategy(NotificationStrategy):
             response.raise_for_status()
             logger.info(f"Webhook {event_type} sent to {rule.notification_target}")
             return True
+        except requests.HTTPError as e:
+            logger.error(f"WEBHOOK_DISPATCH_FAILURE | HTTP {e.response.status_code} from {rule.notification_target}: {str(e)}")
+            record_system_event.delay(
+                event_type='WEBHOOK_DISPATCH_FAILURE',
+                severity='ERROR',
+                context={'target': rule.notification_target, 'rule_id': str(rule.id), 'error': str(e), 'status_code': e.response.status_code}
+            )
+            return False
         except requests.RequestException as e:
-            logger.error(f"Failed to send webhook to {rule.notification_target}: {str(e)}")
+            logger.error(f"WEBHOOK_DISPATCH_FAILURE | Request error to {rule.notification_target}: {str(e)}")
+            record_system_event.delay(
+                event_type='WEBHOOK_DISPATCH_FAILURE',
+                severity='ERROR',
+                context={'target': rule.notification_target, 'rule_id': str(rule.id), 'error': str(e)}
+            )
             return False

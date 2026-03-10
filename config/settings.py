@@ -16,6 +16,22 @@ SECRET_KEY = env('SECRET_KEY', default='django-insecure-change-me-stargazer')
 
 DEBUG = env('DEBUG')
 
+# Internal Monitoring Alerts
+ADMIN_NAME = env('ADMIN_NAME', default='Admin')
+ADMIN_EMAIL = env('ADMIN_EMAIL', default='admin@sysroar.com')
+ADMINS = [
+    (ADMIN_NAME, ADMIN_EMAIL),
+]
+
+SYSTEM_EVENT_THRESHOLDS = {
+    'FAILED_AUTHENTICATION': env.int('FAILED_AUTH_THRESHOLD', default=10),
+    'WEBHOOK_DISPATCH_FAILURE': env.int('WEBHOOK_FAIL_THRESHOLD', default=5),
+    'POSTGRES_TRANSACTION_ROLLBACK': env.int('DB_ROLLBACK_THRESHOLD', default=1),
+    'WS_AUTH_FAILURE': env.int('WS_AUTH_FAIL_THRESHOLD', default=15),
+    'WS_ERROR': env.int('WS_ERROR_THRESHOLD', default=10),
+    'METRIC_PERSISTENCE_FAILURE': env.int('PERSISTENCE_FAIL_THRESHOLD', default=1),
+}
+
 REDIS_URL = env('REDIS_URL', default='redis://redis:6379/0')
 
 ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['localhost', '127.0.0.1', 'web'])
@@ -159,6 +175,14 @@ CELERY_BEAT_SCHEDULE = {
     'nightly-telemetry-purge': {
         'task': 'telemetry.purge_old_telemetry',
         'schedule': crontab(minute=0, hour=2),
+    },
+    'check-system-health-15m': {
+        'task': 'monitoring.check_system_health',
+        'schedule': crontab(minute='*/15'),
+    },
+    'nightly-purge-system-events': {
+        'task': 'monitoring.purge_old_system_events',
+        'schedule': crontab(minute=30, hour=2),
     },
 }
 

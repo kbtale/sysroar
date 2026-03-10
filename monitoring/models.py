@@ -71,3 +71,27 @@ class ServerAlertState(TenantModel):
 
     def __str__(self):
         return f"State for {self.server.name} (Tier {self.current_cooldown_tier})"
+
+class SystemEvent(models.Model):
+    """
+    Stores critical internal system events for observability and anomaly detection.
+    """
+    SEVERITY_CHOICES = [
+        ('WARNING', 'Warning'),
+        ('ERROR', 'Error'),
+        ('CRITICAL', 'Critical'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    event_type = models.CharField(max_length=100, db_index=True)
+    severity = models.CharField(max_length=20, choices=SEVERITY_CHOICES, default='ERROR', db_index=True)
+    context = models.JSONField(default=dict, blank=True, help_text="Contextual metadata for the event.")
+    timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-timestamp']
+        verbose_name = "System Event"
+        verbose_name_plural = "System Events"
+
+    def __str__(self):
+        return f"{self.timestamp.strftime('%Y-%m-%d %H:%M:%S')} - [{self.severity}] {self.event_type}"

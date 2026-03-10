@@ -1,6 +1,11 @@
 import json
 from channels.generic.websocket import AsyncWebsocketConsumer
+from asgiref.sync import sync_to_async
 from monitoring.models import Server
+from monitoring.tasks import record_system_event
+import logging
+
+logger = logging.getLogger(__name__)
 
 class ServerTelemetryConsumer(AsyncWebsocketConsumer):
     async def connect(self):
@@ -23,10 +28,20 @@ class ServerTelemetryConsumer(AsyncWebsocketConsumer):
             
             if not server_exists:
                 logger.error(f"WS_AUTH_FAILURE | Unauthorized access attempt to server {self.server_id} by user {self.user.id}")
+                await sync_to_async(record_system_event.delay)(
+                    event_type='WS_AUTH_FAILURE',
+                    severity='WARNING',
+                    context={'server_id': self.server_id, 'user_id': str(self.user.id)}
+                )
                 await self.close()
                 return
         except Exception as e:
             logger.error(f"WS_ERROR | Unexpected error during WebSocket auth for server {self.server_id}: {str(e)}")
+            await sync_to_async(record_system_event.delay)(
+                event_type='WS_ERROR',
+                severity='ERROR',
+                context={'server_id': self.server_id, 'error': str(e)}
+            )
             await self.close()
             return
 
