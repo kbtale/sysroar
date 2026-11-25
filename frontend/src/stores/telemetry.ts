@@ -9,9 +9,11 @@ interface MetricData {
 
 interface Server {
   id: string
-  hostname: string
-  ip_address: string
-  status: string
+  name: string
+  ip_address: string | null
+  os_info: string | null
+  last_seen: string | null
+  status: 'online' | 'offline' | 'unknown'
 }
 
 interface RawTelemetryPayload {

@@ -66,8 +66,8 @@ function getRamData(serverId: string) {
           <div class="server-info">
             <div class="status-indicator" :class="server.status"></div>
             <div class="text">
-              <h3>{{ server.hostname }}</h3>
-              <code>{{ server.ip_address }}</code>
+              <h3>{{ server.name }}</h3>
+              <code>{{ server.ip_address || 'Unknown IP' }}</code>
             </div>
           </div>
           
@@ -199,8 +199,9 @@ h1 { font-size: 2rem; margin: 0; font-weight: 700; }
   border-radius: 50%;
   box-shadow: 0 0 10px currentColor;
 }
-.status-indicator.active { color: #10b981; background: #10b981; }
-.status-indicator.offline { color: #64748b; background: #64748b; }
+.status-indicator.online { color: #10b981; background: #10b981; }
+.status-indicator.offline { color: #ef4444; background: #ef4444; }
+.status-indicator.unknown { color: #64748b; background: #64748b; }
 
 .server-info h3 { margin: 0; font-size: 1.125rem; }
 .server-info code { color: #94a3b8; font-size: 0.875rem; }
