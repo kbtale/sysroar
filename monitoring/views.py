@@ -1,11 +1,9 @@
 from rest_framework import viewsets
+from accounts.mixins import TenantScopedViewSetMixin
 from .models import Server
 from .serializers import ServerSerializer
 
-class ServerViewSet(viewsets.ReadOnlyModelViewSet):
-    """
-    API endpoint that allows servers to be viewed.
-    Multi-tenancy is handled automatically by the Server manager.
-    """
-    queryset = Server.objects.all()
+
+class ServerViewSet(TenantScopedViewSetMixin, viewsets.ReadOnlyModelViewSet):
+    queryset = Server.unscoped.all()
     serializer_class = ServerSerializer
