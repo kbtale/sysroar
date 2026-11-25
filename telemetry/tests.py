@@ -447,20 +447,20 @@ class TimescaleDbHypertableTests(TransactionTestCase):
                 [base_ts - timedelta(minutes=5), timezone.now() + timedelta(minutes=1)],
             )
 
-        query_start = base_ts - timedelta(minutes=1)
-        aggs_a = query_metric_aggregates(company_a.id, server_a.id, bucket='1m', start=query_start)
+        window_start = base_ts - timedelta(minutes=1)
+        aggs_a = query_metric_aggregates(company_a.id, server_a.id, bucket='1m', start=window_start)
         self.assertEqual(len(aggs_a), 1)
         self.assertEqual(aggs_a[0]['sample_count'], 2)
         self.assertAlmostEqual(aggs_a[0]['avg_cpu'], 50.0)
         self.assertAlmostEqual(aggs_a[0]['min_cpu'], 20.0)
         self.assertAlmostEqual(aggs_a[0]['max_cpu'], 80.0)
 
-        cross_aggs = query_metric_aggregates(company_a.id, server_b.id, bucket='1m', start=query_start)
+        cross_aggs = query_metric_aggregates(company_a.id, server_b.id, bucket='1m', start=window_start)
         self.assertEqual(cross_aggs, [])
 
-        pcts_a = query_metric_percentiles(company_a.id, server_a.id, bucket='1m', start=query_start)
+        pcts_a = query_metric_percentiles(company_a.id, server_a.id, bucket='1m', start=window_start)
         self.assertEqual(len(pcts_a), 1)
         self.assertAlmostEqual(pcts_a[0]['p95_cpu'], 77.0)
 
-        cross_pcts = query_metric_percentiles(company_a.id, server_b.id, bucket='1m', start=query_start)
+        cross_pcts = query_metric_percentiles(company_a.id, server_b.id, bucket='1m', start=window_start)
         self.assertEqual(cross_pcts, [])
