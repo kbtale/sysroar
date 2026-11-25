@@ -9,9 +9,15 @@ from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
 from accounts.models import Company
 from monitoring.models import Server
-from telemetry.ingestion import TELEMETRY_QUEUE_KEY
+from telemetry.consumer import IngestConsumer
+from telemetry.ingestion import (
+    TELEMETRY_DLQ_STREAM_KEY,
+    TELEMETRY_STREAM_KEY,
+    get_stream_metrics,
+    push_to_stream,
+    read_stream_batch,
+)
 from telemetry.models import MetricLog
-from telemetry.tasks import process_telemetry_batch
 
 User = get_user_model()
 
@@ -36,12 +42,12 @@ class TelemetryIngestionTests(APITestCase):
         self.config_url = reverse('telemetry-config')
 
         self.redis_con = get_redis_connection('default')
-        self.redis_con.delete(TELEMETRY_QUEUE_KEY)
-        self.redis_con.delete(f'{TELEMETRY_QUEUE_KEY}:processing')
+        self.redis_con.delete(TELEMETRY_STREAM_KEY)
+        self.redis_con.delete(TELEMETRY_DLQ_STREAM_KEY)
 
     def tearDown(self):
-        self.redis_con.delete(TELEMETRY_QUEUE_KEY)
-        self.redis_con.delete(f'{TELEMETRY_QUEUE_KEY}:processing')
+        self.redis_con.delete(TELEMETRY_STREAM_KEY)
+        self.redis_con.delete(TELEMETRY_DLQ_STREAM_KEY)
 
     def _auth(self, token):
         self.client.credentials(HTTP_AUTHORIZATION=f'Token {token.key}')
@@ -58,16 +64,18 @@ class TelemetryIngestionTests(APITestCase):
 
         response = self.client.post(self.ingest_url, payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
-        self.assertEqual(self.redis_con.llen(TELEMETRY_QUEUE_KEY), 1)
+        self.assertEqual(self.redis_con.xlen(TELEMETRY_STREAM_KEY), 1)
 
-        queued_item = json.loads(self.redis_con.lindex(TELEMETRY_QUEUE_KEY, 0))
+        entries = self.redis_con.xrange(TELEMETRY_STREAM_KEY)
+        queued_item = json.loads(entries[0][1][b'payload'])
         self.assertEqual(queued_item['server_id'], str(self.server_a.id))
         self.assertEqual(queued_item['company_id'], str(self.company_a.id))
 
-        count = process_telemetry_batch()
-        self.assertEqual(count, 1)
-        self.assertEqual(self.redis_con.llen(TELEMETRY_QUEUE_KEY), 0)
-        self.assertEqual(self.redis_con.llen(f'{TELEMETRY_QUEUE_KEY}:processing'), 0)
+        consumer = IngestConsumer(consumer_name='test-consumer', block_ms=50)
+        stats = consumer.run_once(reclaim=False)
+        self.assertEqual(stats['persisted'], 1)
+        self.assertEqual(stats['acked'], 1)
+        self.assertEqual(get_stream_metrics()['pending_count'], 0)
 
         log = MetricLog.unscoped.get(server=self.server_a)
         self.assertEqual(log.company_id, self.company_a.id)
@@ -89,8 +97,9 @@ class TelemetryIngestionTests(APITestCase):
         response = self.client.post(self.ingest_url, payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
 
-        count = process_telemetry_batch()
-        self.assertEqual(count, 1)
+        consumer = IngestConsumer(consumer_name='test-consumer', block_ms=50)
+        stats = consumer.run_once(reclaim=False)
+        self.assertEqual(stats['persisted'], 1)
 
         log = MetricLog.unscoped.get(server=self.server_a)
         self.assertEqual(log.company_id, self.company_a.id)
@@ -108,7 +117,7 @@ class TelemetryIngestionTests(APITestCase):
 
         response = self.client.post(self.ingest_url, payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(self.redis_con.llen(TELEMETRY_QUEUE_KEY), 0)
+        self.assertEqual(self.redis_con.xlen(TELEMETRY_STREAM_KEY), 0)
 
     def test_ingest_rejects_user_without_company(self):
         self._auth(self.token_no_company)
@@ -120,7 +129,7 @@ class TelemetryIngestionTests(APITestCase):
 
         response = self.client.post(self.ingest_url, payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(self.redis_con.llen(TELEMETRY_QUEUE_KEY), 0)
+        self.assertEqual(self.redis_con.xlen(TELEMETRY_STREAM_KEY), 0)
 
     def test_ingest_invalid_data(self):
         self._auth(self.token_a)
@@ -271,13 +280,13 @@ class TelemetryIngestThrottleTests(APITestCase):
         self.ingest_url = reverse('telemetry-ingest')
         self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.token_a.key}')
         self.redis_con = get_redis_connection('default')
-        self.redis_con.delete(TELEMETRY_QUEUE_KEY)
+        self.redis_con.delete(TELEMETRY_STREAM_KEY)
 
     def tearDown(self):
         from django.core.cache import cache
 
         cache.clear()
-        self.redis_con.delete(TELEMETRY_QUEUE_KEY)
+        self.redis_con.delete(TELEMETRY_STREAM_KEY)
 
     def test_ingest_is_throttled_per_server_not_per_user(self):
         from telemetry.throttling import ServerIngestRateThrottle
@@ -464,3 +473,109 @@ class TimescaleDbHypertableTests(TransactionTestCase):
 
         cross_pcts = query_metric_percentiles(company_a.id, server_b.id, bucket='1m', start=window_start)
         self.assertEqual(cross_pcts, [])
+
+
+class RedisStreamsIngestionV2Tests(TransactionTestCase):
+    def setUp(self):
+        self.company = Company.objects.create(name='Stream Co')
+        self.server = Server.unscoped.create(name='stream-01', company=self.company)
+        self.redis_con = get_redis_connection('default')
+        self.redis_con.delete(TELEMETRY_STREAM_KEY)
+        self.redis_con.delete(TELEMETRY_DLQ_STREAM_KEY)
+
+    def tearDown(self):
+        self.redis_con.delete(TELEMETRY_STREAM_KEY)
+        self.redis_con.delete(TELEMETRY_DLQ_STREAM_KEY)
+
+    @patch('monitoring.tasks.evaluate_metrics_batch.delay')
+    def test_xautoclaim_recovers_pending_entries_from_crashed_consumer(self, mock_evaluate):
+        from django.utils import timezone
+
+        ts = timezone.now()
+        push_to_stream({
+            'server_id': str(self.server.id),
+            'company_id': str(self.company.id),
+            'timestamp': ts.isoformat(),
+            'cpu_usage': 33.0,
+            'ram_usage': 44.0,
+        })
+
+        stolen = read_stream_batch(consumer_name='crashed-worker', count=10, block_ms=50)
+        self.assertEqual(len(stolen), 1)
+        self.assertEqual(MetricLog.unscoped.filter(server=self.server).count(), 0)
+        self.assertEqual(get_stream_metrics()['pending_count'], 1)
+
+        recovery = IngestConsumer(consumer_name='recovery-worker', claim_idle_ms=0, block_ms=50)
+        stats = recovery.run_once(reclaim=True)
+        self.assertEqual(stats['persisted'], 1)
+        self.assertEqual(stats['acked'], 1)
+        self.assertEqual(get_stream_metrics()['pending_count'], 0)
+        self.assertEqual(MetricLog.unscoped.filter(server=self.server).count(), 1)
+        mock_evaluate.assert_called_once()
+
+    @patch('monitoring.tasks.evaluate_metrics_batch.delay')
+    def test_poison_record_moves_to_dlq_after_max_deliveries(self, mock_evaluate):
+        from django.utils import timezone
+
+        self.redis_con.xadd(TELEMETRY_STREAM_KEY, {'payload': '{invalid-json'})
+        push_to_stream({
+            'server_id': str(self.server.id),
+            'company_id': str(self.company.id),
+            'timestamp': timezone.now().isoformat(),
+            'cpu_usage': 18.0,
+            'ram_usage': 25.0,
+        })
+
+        consumer = IngestConsumer(consumer_name='dlq-worker', claim_idle_ms=0, block_ms=50, max_deliveries=2)
+        first = consumer.run_once(reclaim=True)
+        self.assertEqual(first['persisted'], 1)
+        self.assertEqual(first['retried'], 1)
+        self.assertEqual(first['dlq'], 0)
+        self.assertEqual(self.redis_con.xlen(TELEMETRY_DLQ_STREAM_KEY), 0)
+
+        second = consumer.run_once(reclaim=True)
+        self.assertEqual(second['dlq'], 1)
+        self.assertEqual(second['acked'], 1)
+        self.assertEqual(self.redis_con.xlen(TELEMETRY_DLQ_STREAM_KEY), 1)
+        self.assertEqual(get_stream_metrics()['pending_count'], 0)
+        mock_evaluate.assert_called_once()
+
+    @patch('monitoring.tasks.evaluate_metrics_batch.delay')
+    def test_deleted_server_fk_isolated_from_healthy_batch_records(self, mock_evaluate):
+        import uuid
+        from datetime import timedelta
+        from django.utils import timezone
+
+        now = timezone.now()
+        push_to_stream({
+            'server_id': str(uuid.uuid4()),
+            'company_id': str(self.company.id),
+            'timestamp': now.isoformat(),
+            'cpu_usage': 10.0,
+            'ram_usage': 20.0,
+        })
+        push_to_stream({
+            'server_id': str(self.server.id),
+            'company_id': str(self.company.id),
+            'timestamp': (now + timedelta(seconds=1)).isoformat(),
+            'cpu_usage': 50.0,
+            'ram_usage': 60.0,
+        })
+
+        consumer = IngestConsumer(consumer_name='fk-worker', claim_idle_ms=0, block_ms=50, max_deliveries=1)
+        stats = consumer.run_once(reclaim=True)
+        self.assertEqual(stats['persisted'], 1)
+        self.assertEqual(stats['dlq'], 1)
+        self.assertEqual(stats['acked'], 2)
+        self.assertEqual(MetricLog.unscoped.filter(server=self.server).count(), 1)
+        self.assertEqual(self.redis_con.xlen(TELEMETRY_DLQ_STREAM_KEY), 1)
+        mock_evaluate.assert_called_once()
+
+    def test_beat_poller_removed_and_compose_has_ingest_consumer(self):
+        from django.conf import settings
+
+        self.assertNotIn('process-telemetry-every-5-seconds', settings.CELERY_BEAT_SCHEDULE)
+        self.assertTrue(settings.CELERY_TASK_IGNORE_RESULT)
+        compose = (settings.BASE_DIR / 'docker-compose.yml').read_text(encoding='utf-8')
+        self.assertIn('ingest_consumer:', compose)
+        self.assertIn('run_ingest_consumer', compose)

@@ -176,11 +176,9 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = TIME_ZONE
 
+CELERY_TASK_IGNORE_RESULT = True
+
 CELERY_BEAT_SCHEDULE = {
-    'process-telemetry-every-5-seconds': {
-        'task': 'telemetry.process_telemetry_batch',
-        'schedule': 5.0,
-    },
     'check-system-health-15m': {
         'task': 'monitoring.check_system_health',
         'schedule': crontab(minute='*/15'),
@@ -190,6 +188,13 @@ CELERY_BEAT_SCHEDULE = {
         'schedule': crontab(minute=30, hour=2),
     },
 }
+
+TELEMETRY_STREAM_KEY = env('TELEMETRY_STREAM_KEY', default='sysroar:telemetry:stream')
+TELEMETRY_DLQ_STREAM_KEY = env('TELEMETRY_DLQ_STREAM_KEY', default='sysroar:telemetry:dlq')
+TELEMETRY_CONSUMER_GROUP = env('TELEMETRY_CONSUMER_GROUP', default='sysroar-ingest')
+TELEMETRY_STREAM_MAXLEN = env.int('TELEMETRY_STREAM_MAXLEN', default=100000)
+TELEMETRY_DLQ_MAXLEN = env.int('TELEMETRY_DLQ_MAXLEN', default=10000)
+TELEMETRY_MAX_DELIVERIES = env.int('TELEMETRY_MAX_DELIVERIES', default=5)
 
 TELEMETRY_RETENTION_DAYS = env.int('TELEMETRY_RETENTION_DAYS', default=14)
 

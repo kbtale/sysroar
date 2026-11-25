@@ -7,7 +7,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from monitoring.models import Server
-from .ingestion import push_to_redis_queue
+from .ingestion import push_to_stream
 from .serializers import MetricLogSerializer
 from .throttling import ServerIngestRateThrottle
 
@@ -41,8 +41,9 @@ class TelemetryIngestView(APIView):
                     'ram_usage': data['ram_usage'],
                     'disk_io': data.get('disk_io'),
                     'timestamp': data.get('timestamp') or now,
+                    'received_at': now,
                 }
-                push_to_redis_queue(payload)
+                push_to_stream(payload)
 
                 update_fields = {'last_ping': now}
                 ip_address = data.get('ip_address') or _extract_remote_ip(request)
