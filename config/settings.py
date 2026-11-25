@@ -1,4 +1,5 @@
 import os
+import tempfile
 from pathlib import Path
 import environ
 from celery.schedules import crontab
@@ -200,7 +201,10 @@ CELERY_BEAT_SCHEDULE = {
 
 TELEMETRY_RETENTION_DAYS = env.int('TELEMETRY_RETENTION_DAYS', default=7)
 
-CELERY_BEAT_SCHEDULE_FILENAME = '/tmp/celerybeat-schedule'
+CELERY_BEAT_SCHEDULE_FILENAME = env(
+    'CELERY_BEAT_SCHEDULE_FILENAME',
+    default=os.path.join(tempfile.gettempdir(), 'sysroar-celerybeat-schedule'),
+)
 
 # CORS & CSRF
 CORS_ALLOWED_ORIGINS = env.list('CORS_ALLOWED_ORIGINS', default=[

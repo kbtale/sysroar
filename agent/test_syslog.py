@@ -1,7 +1,6 @@
 import logging
 import logging.handlers
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 import os
 
 # Set dummy environment variables before importing the agent module
