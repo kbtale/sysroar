@@ -28,15 +28,17 @@ export const useTelemetryStore = defineStore('telemetry', {
     metrics: {} as Record<string, MetricData[]>,
     sockets: {} as Record<string, WebSocket>,
     reconnectAttempts: {} as Record<string, number>,
+    reconnectTimers: {} as Record<string, ReturnType<typeof setTimeout>>,
+    shouldReconnect: true,
   }),
   actions: {
     async fetchServers() {
+      this.shouldReconnect = true
       try {
         const response = await axios.get('/api/monitoring/servers/')
         this.servers = response.data.results || response.data
-        
-        // Start subscriptions for all servers
-        this.servers.forEach(server => {
+
+        this.servers.forEach((server) => {
           this.subscribeToServer(server.id)
         })
       } catch (error) {
@@ -44,21 +46,24 @@ export const useTelemetryStore = defineStore('telemetry', {
       }
     },
     async subscribeToServer(serverId: string) {
-      if (this.sockets[serverId]) return
+      if (this.sockets[serverId] || !this.shouldReconnect || !localStorage.getItem('sysroar_token')) {
+        return
+      }
 
       try {
-        // Request a one-time ticket
         const ticketResponse = await axios.post('/api/accounts/auth/ticket/')
+        if (!this.shouldReconnect) {
+          return
+        }
         const ticket = ticketResponse.data.ticket
-        
+
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
         const host = window.location.host === 'localhost:5173' ? 'localhost:8000' : window.location.host
         const wsUrl = `${protocol}//${host}/ws/telemetry/${serverId}/?ticket=${ticket}`
-        
+
         const socket = new WebSocket(wsUrl)
-        
+
         socket.onopen = () => {
-          console.log(`Connected to server ${serverId}`)
           this.reconnectAttempts[serverId] = 0
         }
 
@@ -66,54 +71,81 @@ export const useTelemetryStore = defineStore('telemetry', {
           const data = JSON.parse(event.data) as RawTelemetryPayload
           this.addMetric(serverId, data)
         }
-        
-        socket.onclose = () => {
+
+        socket.onclose = (event) => {
           delete this.sockets[serverId]
-          this.handleReconnect(serverId)
+          if (this.shouldReconnect && event?.code !== 4401 && event?.code !== 4403) {
+            this.handleReconnect(serverId)
+          }
         }
 
         socket.onerror = () => {
           socket.close()
         }
-        
+
         this.sockets[serverId] = socket
       } catch (error) {
         console.error(`Status check for ticket or socket failed for ${serverId}`, error)
-        this.handleReconnect(serverId)
+        if (this.shouldReconnect && localStorage.getItem('sysroar_token')) {
+          this.handleReconnect(serverId)
+        }
       }
     },
     handleReconnect(serverId: string) {
+      if (!this.shouldReconnect || !localStorage.getItem('sysroar_token')) {
+        return
+      }
       const attempts = this.reconnectAttempts[serverId] || 0
       if (attempts > 10) {
-        console.error(`Max reconnection attempts reached for server ${serverId}`)
         return
       }
 
+      if (this.reconnectTimers[serverId]) {
+        clearTimeout(this.reconnectTimers[serverId])
+      }
+
       const delay = Math.min(1000 * Math.pow(2, attempts), 30000)
-      console.log(`Reconnecting to ${serverId} in ${delay}ms (attempt ${attempts + 1})`)
-      
-      setTimeout(() => {
+
+      this.reconnectTimers[serverId] = setTimeout(() => {
+        delete this.reconnectTimers[serverId]
+        if (!this.shouldReconnect) {
+          return
+        }
         this.reconnectAttempts[serverId] = attempts + 1
         this.subscribeToServer(serverId)
       }, delay)
+    },
+    disconnectAll() {
+      this.shouldReconnect = false
+      Object.values(this.reconnectTimers).forEach((timer) => clearTimeout(timer))
+      this.reconnectTimers = {}
+
+      Object.values(this.sockets).forEach((socket) => {
+        socket.onclose = null
+        socket.onerror = null
+        socket.close()
+      })
+      this.sockets = {}
+      this.reconnectAttempts = {}
+      this.servers = []
+      this.metrics = {}
     },
     addMetric(serverId: string, data: RawTelemetryPayload) {
       if (!this.metrics[serverId]) {
         this.metrics[serverId] = []
       }
-      
+
       const metric: MetricData = {
         cpu_usage: data.cpu_usage,
         ram_usage: data.ram_usage,
-        timestamp: data.timestamp || new Date().toISOString()
+        timestamp: data.timestamp || new Date().toISOString(),
       }
-      
+
       this.metrics[serverId].push(metric)
-      
-      // Keep only last 20 points
+
       if (this.metrics[serverId].length > 20) {
         this.metrics[serverId].shift()
       }
-    }
-  }
+    },
+  },
 })
