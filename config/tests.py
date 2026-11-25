@@ -1,7 +1,12 @@
+import io
+import json
+import logging
 import os
 import subprocess
 import sys
-from django.test import SimpleTestCase
+from unittest.mock import patch
+from django.conf import settings
+from django.test import SimpleTestCase, override_settings
 
 
 class AsgiSmokeTests(SimpleTestCase):
@@ -33,3 +38,62 @@ class AsgiSmokeTests(SimpleTestCase):
         self.assertIn('http', application.application_mapping)
         self.assertIn('websocket', application.application_mapping)
         self.assertIsInstance(application.application_mapping['websocket'], OriginValidator)
+
+
+class LoggingConfigurationTests(SimpleTestCase):
+    def test_console_handler_uses_json_formatter_and_logstash_disabled_by_default(self):
+        self.assertEqual(settings.LOG_BACKEND, 'none')
+        self.assertEqual(settings.LOGGING['handlers']['console']['formatter'], 'json')
+        self.assertNotIn('logstash', settings.LOGGING['root']['handlers'])
+        self.assertNotIn('logstash', settings.LOGGING['handlers'])
+
+    def test_elk_security_check_silent_when_log_backend_is_none(self):
+        from config.checks import check_elasticsearch_security
+
+        with override_settings(LOG_BACKEND='none'):
+            self.assertEqual(check_elasticsearch_security(None), [])
+
+    def test_elk_security_check_warns_only_when_elasticsearch_enabled_without_security(self):
+        from config.checks import check_elasticsearch_security
+
+        with override_settings(LOG_BACKEND='elasticsearch'):
+            with patch.dict(os.environ, {'ELASTICSEARCH_SECURITY_ENABLED': 'false'}):
+                warnings = check_elasticsearch_security(None)
+                self.assertEqual(len(warnings), 1)
+                self.assertEqual(warnings[0].id, 'sysroar.W001')
+
+            with patch.dict(os.environ, {'ELASTICSEARCH_SECURITY_ENABLED': 'true'}):
+                self.assertEqual(check_elasticsearch_security(None), [])
+
+    def test_json_tcp_log_handler_serializes_json_not_pickle_and_elk_builder_uses_5044(self):
+        from pythonjsonlogger.jsonlogger import JsonFormatter
+        from config.logging_utils import CorrelationIdFilter, JsonTcpLogHandler, build_logging_config
+
+        handler = JsonTcpLogHandler('logstash', 5044)
+        handler.setFormatter(JsonFormatter('%(asctime)s %(levelname)s %(name)s %(message)s %(correlation_id)s'))
+        handler.addFilter(CorrelationIdFilter())
+
+        record = logging.LogRecord(
+            name='sysroar.test',
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=1,
+            msg='hello structured log',
+            args=(),
+            exc_info=None,
+        )
+        record.request = io.BytesIO(b'unpicklable')
+        handler.filter(record)
+
+        wire_bytes = handler.makePickle(record)
+        self.assertTrue(wire_bytes.endswith(b'\n'))
+        parsed = json.loads(wire_bytes.decode('utf-8'))
+        self.assertEqual(parsed['message'], 'hello structured log')
+        self.assertEqual(parsed['levelname'], 'INFO')
+        self.assertIn('correlation_id', parsed)
+
+        elk_logging = build_logging_config(log_backend='elasticsearch', logstash_host='logstash', logstash_port=5044)
+        self.assertIn('logstash', elk_logging['root']['handlers'])
+        self.assertEqual(elk_logging['handlers']['logstash']['port'], 5044)
+        self.assertEqual(elk_logging['handlers']['logstash']['formatter'], 'json')
+        self.assertEqual(elk_logging['handlers']['logstash']['class'], 'config.logging_utils.JsonTcpLogHandler')

@@ -239,36 +239,16 @@ CACHES = {
 SESSION_ENGINE = "django.contrib.sessions.backends.cache"
 SESSION_CACHE_ALIAS = "default"
 
-# Logging
-LOGGING = {
-    'version': 1,
-    'disable_existing_loggers': False,
-    'formatters': {
-        'json': {
-            '()': 'pythonjsonlogger.jsonlogger.JsonFormatter',
-            'format': '%(asctime)s %(levelname)s %(name)s %(message)s %(correlation_id)s',
-        },
-    },
-    'filters': {
-        'correlation_id': {
-            '()': 'config.logging_utils.CorrelationIdFilter',
-        },
-    },
-    'handlers': {
-        'logstash': {
-            'level': 'DEBUG',
-            'class': 'logging.handlers.SocketHandler',
-            'host': 'logstash',
-            'port': 5000,
-            'filters': ['correlation_id'],
-        },
-        'console': {
-            'class': 'logging.StreamHandler',
-            'filters': ['correlation_id'],
-        },
-    },
-    'root': {
-        'handlers': ['console', 'logstash'],
-        'level': 'INFO',
-    },
-}
+from config.logging_utils import build_logging_config
+
+LOG_BACKEND = env('LOG_BACKEND', default='none').lower()
+LOGSTASH_HOST = env('LOGSTASH_HOST', default='logstash')
+LOGSTASH_PORT = env.int('LOGSTASH_PORT', default=5044)
+LOG_LEVEL = env('LOG_LEVEL', default='INFO').upper()
+
+LOGGING = build_logging_config(
+    log_backend=LOG_BACKEND,
+    logstash_host=LOGSTASH_HOST,
+    logstash_port=LOGSTASH_PORT,
+    log_level=LOG_LEVEL,
+)
