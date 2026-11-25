@@ -181,14 +181,6 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'telemetry.process_telemetry_batch',
         'schedule': 5.0,
     },
-    'hourly-telemetry-rollup': {
-        'task': 'telemetry.rollup_telemetry_data',
-        'schedule': crontab(minute=0),
-    },
-    'nightly-telemetry-purge': {
-        'task': 'telemetry.purge_old_telemetry',
-        'schedule': crontab(minute=0, hour=2),
-    },
     'check-system-health-15m': {
         'task': 'monitoring.check_system_health',
         'schedule': crontab(minute='*/15'),
@@ -199,7 +191,7 @@ CELERY_BEAT_SCHEDULE = {
     },
 }
 
-TELEMETRY_RETENTION_DAYS = env.int('TELEMETRY_RETENTION_DAYS', default=7)
+TELEMETRY_RETENTION_DAYS = env.int('TELEMETRY_RETENTION_DAYS', default=14)
 
 CELERY_BEAT_SCHEDULE_FILENAME = env(
     'CELERY_BEAT_SCHEDULE_FILENAME',
