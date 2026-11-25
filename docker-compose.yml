@@ -43,6 +43,9 @@ services:
       - DATABASE_URL=postgres://${DB_USER:-sysroar_user}:${DB_PASSWORD:-sysroar_password}@db:5432/${DB_NAME:-sysroar}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/1}
+      - LOG_BACKEND=${LOG_BACKEND:-none}
+      - LOGSTASH_HOST=logstash
+      - LOGSTASH_PORT=5044
     ports:
       - "8000:8000"
     depends_on:
@@ -61,6 +64,9 @@ services:
       - DATABASE_URL=postgres://${DB_USER:-sysroar_user}:${DB_PASSWORD:-sysroar_password}@db:5432/${DB_NAME:-sysroar}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/1}
+      - LOG_BACKEND=${LOG_BACKEND:-none}
+      - LOGSTASH_HOST=logstash
+      - LOGSTASH_PORT=5044
     depends_on:
       db:
         condition: service_healthy
@@ -77,6 +83,9 @@ services:
       - DATABASE_URL=postgres://${DB_USER:-sysroar_user}:${DB_PASSWORD:-sysroar_password}@db:5432/${DB_NAME:-sysroar}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/1}
+      - LOG_BACKEND=${LOG_BACKEND:-none}
+      - LOGSTASH_HOST=logstash
+      - LOGSTASH_PORT=5044
     depends_on:
       db:
         condition: service_healthy
@@ -84,5 +93,43 @@ services:
         condition: service_healthy
     command: celery -A config beat --loglevel=info
 
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.1
+    profiles:
+      - elk
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "127.0.0.1:9200:9200"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.11.1
+    profiles:
+      - elk
+    volumes:
+      - ./logstash/pipeline:/usr/share/logstash/pipeline:ro
+    ports:
+      - "127.0.0.1:5044:5044"
+      - "127.0.0.1:5000:5000/tcp"
+      - "127.0.0.1:5000:5000/udp"
+    environment:
+      - LS_JAVA_OPTS=-Xms256m -Xmx256m
+    depends_on:
+      - elasticsearch
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.11.1
+    profiles:
+      - elk
+    ports:
+      - "127.0.0.1:5601:5601"
+    depends_on:
+      - elasticsearch
+
 volumes:
   postgres_data:
+  es_data:
