@@ -5,5 +5,5 @@ from .serializers import ServerSerializer
 
 
 class ServerViewSet(TenantScopedViewSetMixin, viewsets.ReadOnlyModelViewSet):
-    queryset = Server.unscoped.all()
+    queryset = Server.unscoped.all().order_by('created_at', 'id')
     serializer_class = ServerSerializer

@@ -104,3 +104,123 @@ class SystemHealthMonitoringTests(TestCase):
         event = SystemEvent.objects.get(event_type='MANUAL_TEST')
         self.assertEqual(event.severity, 'WARNING')
         self.assertEqual(event.context['foo'], 'bar')
+
+
+class ServerApiAndHeartbeatTests(TestCase):
+    def setUp(self):
+        from datetime import timedelta
+        from django.contrib.auth import get_user_model
+        from django.utils import timezone
+        from django_redis import get_redis_connection
+        from rest_framework.authtoken.models import Token
+        from telemetry.ingestion import TELEMETRY_QUEUE_KEY
+
+        User = get_user_model()
+        self.client = APIClient()
+        self.company_a = Company.objects.create(name='Company A')
+        self.company_b = Company.objects.create(name='Company B')
+        self.user_a = User.objects.create_user(username='mon_user_a', password='password123', company=self.company_a)
+        self.token_a = Token.objects.create(user=self.user_a)
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.token_a.key}')
+
+        now = timezone.now()
+        self.online_server = Server.unscoped.create(
+            name='web-01',
+            company=self.company_a,
+            ip_address='10.0.0.1',
+            os_info='Debian 12',
+            last_ping=now,
+        )
+        self.offline_server = Server.unscoped.create(
+            name='db-01',
+            company=self.company_a,
+            last_ping=now - timedelta(minutes=10),
+        )
+        self.unknown_server = Server.unscoped.create(
+            name='new-01',
+            company=self.company_a,
+            last_ping=None,
+        )
+        self.other_company_server = Server.unscoped.create(
+            name='other-01',
+            company=self.company_b,
+            last_ping=now,
+        )
+
+        self.redis_con = get_redis_connection('default')
+        self.redis_con.delete(TELEMETRY_QUEUE_KEY)
+
+    def tearDown(self):
+        from django_redis import get_redis_connection
+        from telemetry.ingestion import TELEMETRY_QUEUE_KEY
+
+        get_redis_connection('default').delete(TELEMETRY_QUEUE_KEY)
+
+    def test_list_servers_returns_real_fields_computed_status_and_enforces_tenancy(self):
+        response = self.client.get('/api/monitoring/servers/')
+        self.assertEqual(response.status_code, 200)
+        results = response.data['results'] if isinstance(response.data, dict) else response.data
+        by_id = {item['id']: item for item in results}
+
+        self.assertEqual(set(by_id.keys()), {
+            str(self.online_server.id),
+            str(self.offline_server.id),
+            str(self.unknown_server.id),
+        })
+        self.assertNotIn(str(self.other_company_server.id), by_id)
+
+        online = by_id[str(self.online_server.id)]
+        self.assertEqual(online['name'], 'web-01')
+        self.assertEqual(online['ip_address'], '10.0.0.1')
+        self.assertEqual(online['os_info'], 'Debian 12')
+        self.assertEqual(online['status'], 'online')
+        self.assertIsNotNone(online['last_seen'])
+
+        self.assertEqual(by_id[str(self.offline_server.id)]['status'], 'offline')
+        self.assertEqual(by_id[str(self.unknown_server.id)]['status'], 'unknown')
+
+        cross_resp = self.client.get(f'/api/monitoring/servers/{self.other_company_server.id}/')
+        self.assertEqual(cross_resp.status_code, 404)
+
+    def test_ingest_updates_server_last_seen_ip_and_os_info(self):
+        ingest_url = reverse('telemetry-ingest')
+        response = self.client.post(
+            ingest_url,
+            {
+                'server': str(self.unknown_server.id),
+                'cpu_usage': 22.0,
+                'ram_usage': 45.0,
+                'ip_address': '10.0.0.42',
+                'os_info': 'Ubuntu 24.04 LTS',
+            },
+            format='json',
+        )
+        self.assertEqual(response.status_code, 202)
+
+        self.unknown_server.refresh_from_db()
+        self.assertIsNotNone(self.unknown_server.last_ping)
+        self.assertEqual(self.unknown_server.ip_address, '10.0.0.42')
+        self.assertEqual(self.unknown_server.os_info, 'Ubuntu 24.04 LTS')
+
+        detail_resp = self.client.get(f'/api/monitoring/servers/{self.unknown_server.id}/')
+        self.assertEqual(detail_resp.status_code, 200)
+        self.assertEqual(detail_resp.data['status'], 'online')
+        self.assertEqual(detail_resp.data['ip_address'], '10.0.0.42')
+        self.assertEqual(detail_resp.data['os_info'], 'Ubuntu 24.04 LTS')
+
+    def test_ingest_falls_back_to_remote_addr_when_ip_omitted(self):
+        ingest_url = reverse('telemetry-ingest')
+        response = self.client.post(
+            ingest_url,
+            {
+                'server': str(self.unknown_server.id),
+                'cpu_usage': 15.0,
+                'ram_usage': 30.0,
+            },
+            format='json',
+            REMOTE_ADDR='192.0.2.15',
+        )
+        self.assertEqual(response.status_code, 202)
+        self.unknown_server.refresh_from_db()
+        self.assertIsNotNone(self.unknown_server.last_ping)
+        self.assertEqual(self.unknown_server.ip_address, '192.0.2.15')

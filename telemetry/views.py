@@ -1,3 +1,4 @@
+import ipaddress
 import logging
 import uuid
 from django.utils import timezone
@@ -12,6 +13,16 @@ from .serializers import MetricLogSerializer
 logger = logging.getLogger(__name__)
 
 
+def _extract_remote_ip(request):
+    candidate = request.META.get('REMOTE_ADDR')
+    if not candidate:
+        return None
+    try:
+        return str(ipaddress.ip_address(candidate.strip()))
+    except ValueError:
+        return None
+
+
 class TelemetryIngestView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -20,15 +31,29 @@ class TelemetryIngestView(APIView):
         if serializer.is_valid():
             try:
                 data = serializer.validated_data
+                now = timezone.now()
                 payload = {
                     'server_id': str(data['server_id']),
                     'company_id': str(data['company_id']),
                     'cpu_usage': data['cpu_usage'],
                     'ram_usage': data['ram_usage'],
                     'disk_io': data.get('disk_io'),
-                    'timestamp': data.get('timestamp') or timezone.now(),
+                    'timestamp': data.get('timestamp') or now,
                 }
                 push_to_redis_queue(payload)
+
+                update_fields = {'last_ping': now}
+                ip_address = data.get('ip_address') or _extract_remote_ip(request)
+                if ip_address:
+                    update_fields['ip_address'] = ip_address
+                if data.get('os_info'):
+                    update_fields['os_info'] = data['os_info']
+
+                Server.unscoped.filter(
+                    id=data['server_id'],
+                    company_id=data['company_id'],
+                ).update(**update_fields)
+
                 return Response(
                     {'status': 'accepted', 'message': 'Telemetry queued for processing.'},
                     status=status.HTTP_202_ACCEPTED,

@@ -1,5 +1,8 @@
+import re
 from rest_framework import serializers
 from monitoring.models import Server
+
+_CONTROL_CHARS_RE = re.compile(r'[\x00-\x1f\x7f]')
 
 
 class MetricLogSerializer(serializers.Serializer):
@@ -8,6 +11,8 @@ class MetricLogSerializer(serializers.Serializer):
     cpu_usage = serializers.FloatField(min_value=0.0, max_value=100.0)
     ram_usage = serializers.FloatField(min_value=0.0, max_value=100.0)
     disk_io = serializers.FloatField(min_value=0.0, required=False, allow_null=True)
+    ip_address = serializers.IPAddressField(required=False, allow_null=True)
+    os_info = serializers.CharField(max_length=255, required=False, allow_blank=True, allow_null=True)
 
     def validate_server(self, value):
         request = self.context.get('request')
@@ -18,6 +23,12 @@ class MetricLogSerializer(serializers.Serializer):
             raise serializers.ValidationError('Server does not exist or access denied.')
         self._validated_server = server
         return value
+
+    def validate_os_info(self, value):
+        if value is None:
+            return None
+        cleaned = _CONTROL_CHARS_RE.sub('', value).strip()
+        return cleaned or None
 
     def validate(self, attrs):
         attrs['server_id'] = self._validated_server.id
