@@ -37,8 +37,12 @@ class TenantIsolationTests(TestCase):
         self.user_a = User.objects.create_user(username='user_a', password='password123', company=self.company_a)
         self.user_b = User.objects.create_user(username='user_b', password='password123', company=self.company_b)
         self.system_user = User.objects.create_user(username='system_user', password='password123')
-        self.superuser = User.objects.create_superuser(username='admin_user', email='admin@example.com', password='password123')
-        self.staff_a = User.objects.create_user(username='staff_a', password='password123', company=self.company_a, is_staff=True)
+        self.superuser = User.objects.create_superuser(
+            username='admin_user', email='admin@example.com', password='password123'
+        )
+        self.staff_a = User.objects.create_user(
+            username='staff_a', password='password123', company=self.company_a, is_staff=True
+        )
         self.staff_no_company = User.objects.create_user(username='staff_none', password='password123', is_staff=True)
 
         self.token_a = Token.objects.create(user=self.user_a)

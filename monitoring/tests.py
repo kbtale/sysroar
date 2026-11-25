@@ -1,106 +1,120 @@
-from django.test import TestCase, override_settings
-from django.urls import reverse
-from rest_framework.test import APIClient
+from datetime import timedelta
+from unittest.mock import patch
+from django.contrib.auth import get_user_model
 from django.core import mail
+from django.test import TestCase
+from django.urls import reverse
+from django.utils import timezone
+from django_redis import get_redis_connection
+from rest_framework.authtoken.models import Token
+from rest_framework.test import APIClient
 from accounts.models import Company
-from .models import Server, AlertRule, SystemEvent
+from config.celery import app as celery_app
+from telemetry.ingestion import TELEMETRY_QUEUE_KEY
 from telemetry.models import MetricLog
-from .tasks import evaluate_metrics_batch, check_system_health, record_system_event
+from .models import AlertRule, Server, ServerAlertState, SystemEvent
+from .tasks import check_system_health, evaluate_metrics_batch, record_system_event
+
 
 class MonitoringEvaluationTests(TestCase):
     def setUp(self):
-        self.company = Company.objects.create(name="Test Corp")
-        self.server = Server.objects.create(
-            name="Test Server", 
-            company=self.company, 
-            is_active=True
+        self.company = Company.objects.create(name='Test Corp')
+        self.server = Server.unscoped.create(
+            name='Test Server',
+            company=self.company,
+            is_active=True,
         )
-        self.rule = AlertRule.objects.create(
+        self.rule = AlertRule.unscoped.create(
             server=self.server,
             company=self.company,
             metric_type='cpu',
             threshold_value=90.0,
-            is_active=True
+            is_active=True,
+            notification_type='EMAIL',
+            notification_target='ops@example.com',
         )
 
-    def test_evaluate_metrics_breach(self):
-        """
-        Verify that a breach is correctly identified when threshold is exceeded.
-        """
-        from django.utils import timezone
-        log = MetricLog.objects.create(
+    @patch('monitoring.tasks.NotificationDispatcher.dispatch_alert')
+    def test_evaluate_metrics_breach(self, mock_dispatch):
+        log = MetricLog.unscoped.create(
             server=self.server,
             company=self.company,
             cpu_usage=95.0,
             ram_usage=50.0,
-            timestamp=timezone.now()
+            timestamp=timezone.now(),
         )
         evaluate_metrics_batch([str(log.id)])
 
-    def test_evaluate_metrics_healthy(self):
-        """
-        Verify that no breach is flagged when metrics are below threshold.
-        """
-        from django.utils import timezone
-        log = MetricLog.objects.create(
+        state = ServerAlertState.unscoped.get(server=self.server)
+        self.assertEqual(state.current_cooldown_tier, 1)
+        self.assertEqual(state.consecutive_healthy_count, 0)
+        self.assertIsNotNone(state.last_alert_sent_at)
+        mock_dispatch.assert_called_once()
+        dispatched_server, dispatched_rule, context = mock_dispatch.call_args[0]
+        self.assertEqual(dispatched_server.id, self.server.id)
+        self.assertEqual(dispatched_rule.id, self.rule.id)
+        self.assertEqual(context['value'], 95.0)
+
+    @patch('monitoring.tasks.NotificationDispatcher.dispatch_resolution')
+    @patch('monitoring.tasks.NotificationDispatcher.dispatch_alert')
+    def test_evaluate_metrics_healthy(self, mock_dispatch_alert, mock_dispatch_resolution):
+        log = MetricLog.unscoped.create(
             server=self.server,
             company=self.company,
             cpu_usage=80.0,
             ram_usage=50.0,
-            timestamp=timezone.now()
+            timestamp=timezone.now(),
         )
         evaluate_metrics_batch([str(log.id)])
 
-@override_settings(CELERY_TASK_ALWAYS_EAGER=True)
+        state = ServerAlertState.unscoped.get(server=self.server)
+        self.assertEqual(state.current_cooldown_tier, 0)
+        self.assertEqual(state.consecutive_healthy_count, 1)
+        self.assertIsNone(state.last_alert_sent_at)
+        mock_dispatch_alert.assert_not_called()
+        mock_dispatch_resolution.assert_not_called()
+
+
 class SystemHealthMonitoringTests(TestCase):
     def setUp(self):
         self.client = APIClient()
-        self.company = Company.objects.create(name="Test Company")
+        self.company = Company.objects.create(name='Test Company')
+        self._prev_eager = celery_app.conf.task_always_eager
+        celery_app.conf.task_always_eager = True
+
+    def tearDown(self):
+        celery_app.conf.task_always_eager = self._prev_eager
 
     def test_auth_failure_logs_event(self):
-        """
-        Verify that a failed authentication attempt triggers a SystemEvent record.
-        """
-        # Attempt to access a protected endpoint with an invalid token
         self.client.get(
-            '/api/monitoring/servers/', 
-            HTTP_AUTHORIZATION='Token invalid_token'
+            '/api/monitoring/servers/',
+            HTTP_AUTHORIZATION='Token invalid_token',
         )
-        
+
         events = SystemEvent.objects.filter(event_type='FAILED_AUTHENTICATION')
-        self.assertTrue(events.exists(), "FAILED_AUTHENTICATION event not found in database")
+        self.assertTrue(events.exists())
         self.assertEqual(events.count(), 1)
-        # Check metadata
         self.assertEqual(events.first().context['path'], '/api/monitoring/servers/')
 
     def test_system_health_alert_threshold(self):
-        """
-        Verify that check_system_health sends an email when thresholds are exceeded.
-        """
-        # Set a low threshold for testing
         with self.settings(
             ADMINS=[('Admin', 'admin@example.com')],
             SYSTEM_EVENT_THRESHOLDS={'TEST_EVENT': 3},
-            DEFAULT_FROM_EMAIL='noreply@sysroar.com'
+            DEFAULT_FROM_EMAIL='noreply@sysroar.com',
+            EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
         ):
-            # Create 3 events
             for _ in range(3):
                 SystemEvent.objects.create(event_type='TEST_EVENT', severity='ERROR')
-            
-            # Run the health check
+
             check_system_health()
-            
-            # Verify email sent
+
             self.assertEqual(len(mail.outbox), 1)
-            self.assertIn("System Health Warning", mail.outbox[0].subject)
-            self.assertIn("TEST_EVENT: 3 occurrences", mail.outbox[0].body)
+            self.assertIn('System Health Warning', mail.outbox[0].subject)
+            self.assertIn('TEST_EVENT: 3 occurrences', mail.outbox[0].body)
 
     def test_async_event_recording_task(self):
-        """
-        Directly test the record_system_event task.
-        """
         record_system_event('MANUAL_TEST', severity='WARNING', context={'foo': 'bar'})
-        
+
         event = SystemEvent.objects.get(event_type='MANUAL_TEST')
         self.assertEqual(event.severity, 'WARNING')
         self.assertEqual(event.context['foo'], 'bar')
@@ -108,13 +122,6 @@ class SystemHealthMonitoringTests(TestCase):
 
 class ServerApiAndHeartbeatTests(TestCase):
     def setUp(self):
-        from datetime import timedelta
-        from django.contrib.auth import get_user_model
-        from django.utils import timezone
-        from django_redis import get_redis_connection
-        from rest_framework.authtoken.models import Token
-        from telemetry.ingestion import TELEMETRY_QUEUE_KEY
-
         User = get_user_model()
         self.client = APIClient()
         self.company_a = Company.objects.create(name='Company A')
@@ -151,9 +158,6 @@ class ServerApiAndHeartbeatTests(TestCase):
         self.redis_con.delete(TELEMETRY_QUEUE_KEY)
 
     def tearDown(self):
-        from django_redis import get_redis_connection
-        from telemetry.ingestion import TELEMETRY_QUEUE_KEY
-
         get_redis_connection('default').delete(TELEMETRY_QUEUE_KEY)
 
     def test_list_servers_returns_real_fields_computed_status_and_enforces_tenancy(self):

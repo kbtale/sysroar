@@ -2,7 +2,7 @@ from django.test import TestCase
 from django.utils import timezone
 from datetime import timedelta
 from accounts.models import Company
-from .models import Server, AlertRule, ServerAlertState
+from .models import Server, ServerAlertState
 from .state_machine import AlertStateMachine
 
 class AlertStateMachineTests(TestCase):

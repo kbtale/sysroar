@@ -1,6 +1,5 @@
 import os
 import time
-import json
 import logging
 import logging.handlers
 import threading
@@ -140,7 +139,7 @@ def run_agent():
     config_thread = threading.Thread(target=config_polling_loop, daemon=True)
     config_thread.start()
 
-    logger.info(f"Starting SysRoar Remote Agent.")
+    logger.info("Starting SysRoar Remote Agent.")
     collector = TelemetryCollector()
 
     while True:

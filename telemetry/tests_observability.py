@@ -1,9 +1,7 @@
 import uuid
-import logging
 from django.test import TestCase, RequestFactory
 from django.http import HttpResponse
 from rest_framework.test import APIClient
-from rest_framework import status
 from config.middleware import CorrelationIdMiddleware
 from config.logging_utils import get_correlation_id, set_correlation_id, clear_correlation_id
 from celery import shared_task

@@ -1,5 +1,4 @@
 from asgiref.local import Local
-import uuid
 import logging
 
 _locals = Local()

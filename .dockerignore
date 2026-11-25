@@ -10,3 +10,5 @@ docs/
 .idea/
 .docker_volumes/
 *.db
+frontend/node_modules/
+frontend/dist/

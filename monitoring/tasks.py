@@ -45,7 +45,10 @@ def evaluate_metrics_batch(metric_log_ids):
                 value = log.disk_io
 
             if value is not None and value > rule.threshold_value:
-                logger.info(f"Threshold breached: {rule} on {log.server.name} ({rule.metric_type}: {value} > {rule.threshold_value})")
+                logger.info(
+                    f"Threshold breached: {rule} on {log.server.name} "
+                    f"({rule.metric_type}: {value} > {rule.threshold_value})"
+                )
                 breached_rules_with_context.append({
                     'rule': rule,
                     'context': {
@@ -81,7 +84,10 @@ def handle_server_breach(server_id, breached_rules_with_context):
             else:
                 state.save()
     except DatabaseError as e:
-        logger.error(f"POSTGRES_TRANSACTION_ROLLBACK | Failed to update alert state for server {server_id}: {str(e)}", exc_info=True)
+        logger.error(
+            f"POSTGRES_TRANSACTION_ROLLBACK | Failed to update alert state for server {server_id}: {str(e)}",
+            exc_info=True,
+        )
         record_system_event.delay(
             event_type='POSTGRES_TRANSACTION_ROLLBACK',
             severity='CRITICAL',
@@ -106,7 +112,10 @@ def handle_server_healthy(server_id):
                 rules = AlertRule.unscoped.filter(server=server, is_active=True)
                 dispatch_resolution_notifications(server, rules)
     except DatabaseError as e:
-        logger.error(f"POSTGRES_TRANSACTION_ROLLBACK | Failed to record healthy signal for server {server_id}: {str(e)}", exc_info=True)
+        logger.error(
+            f"POSTGRES_TRANSACTION_ROLLBACK | Failed to record healthy signal for server {server_id}: {str(e)}",
+            exc_info=True,
+        )
         record_system_event.delay(
             event_type='POSTGRES_TRANSACTION_ROLLBACK',
             severity='CRITICAL',
@@ -176,8 +185,11 @@ def check_system_health():
             alerts_to_send.append(f"- {event_type}: {count} occurrences (Threshold: {threshold})")
 
     if alerts_to_send:
-        subject = f"[SysRoar Alert] System Health Warning - Anomalies Detected"
-        message = "The following internal system events have exceeded their configured thresholds in the last 15 minutes:\n\n"
+        subject = "[SysRoar Alert] System Health Warning - Anomalies Detected"
+        message = (
+            "The following internal system events have exceeded their configured "
+            "thresholds in the last 15 minutes:\n\n"
+        )
         message += "\n".join(alerts_to_send)
         message += "\n\nPlease check the server logs and SystemEvent dashboard for more details."
         
