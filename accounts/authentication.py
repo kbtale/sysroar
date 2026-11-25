@@ -34,9 +34,11 @@ class WebSocketTicketManager:
         self.redis.setex(key, self.ttl, user_id)
         return ticket
 
-    def consume_ticket(self, ticket: str) -> str:
+    def consume_ticket(self, ticket: str):
         key = f"{self.prefix}{ticket}"
         user_id = self.redis.getdel(key)
+        if isinstance(user_id, bytes):
+            return user_id.decode('utf-8')
         return user_id
 
 
