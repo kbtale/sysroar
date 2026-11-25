@@ -338,3 +338,43 @@ class TelemetryIngestThrottleTests(APITestCase):
                 format='json',
             )
             self.assertEqual(resp3.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+
+class EmailConfigurationTests(APITestCase):
+    def test_email_settings_have_non_default_smtp_configuration(self):
+        from django.conf import settings
+
+        self.assertEqual(settings.EMAIL_HOST, 'mailpit')
+        self.assertEqual(settings.EMAIL_PORT, 1025)
+        self.assertEqual(settings.DEFAULT_FROM_EMAIL, 'alerts@sysroar.local')
+        self.assertGreater(getattr(settings, 'EMAIL_TIMEOUT', 0), 0)
+
+    def test_email_strategy_dispatches_alert_and_resolution_with_configured_sender(self):
+        from django.conf import settings
+        from django.core import mail
+        from django.test import override_settings
+        from monitoring.models import AlertRule
+        from telemetry.notifications.email import EmailStrategy
+
+        company = Company.objects.create(name='Mail Co')
+        server = Server.unscoped.create(name='app-01', ip_address='10.0.0.5', company=company)
+        rule = AlertRule.unscoped.create(
+            company=company,
+            server=server,
+            metric_type='cpu',
+            threshold_value=80.0,
+            notification_type='EMAIL',
+            notification_target='ops@example.com',
+        )
+
+        with override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend'):
+            strategy = EmailStrategy()
+            self.assertTrue(strategy.send_alert(server, rule, {'value': 95.0, 'timestamp': '2026-11-25T12:00:00Z'}))
+            self.assertTrue(strategy.send_resolution(server, rule, {'timestamp': '2026-11-25T12:05:00Z'}))
+
+        self.assertEqual(len(mail.outbox), 2)
+        self.assertEqual(mail.outbox[0].from_email, settings.DEFAULT_FROM_EMAIL)
+        self.assertEqual(mail.outbox[0].to, ['ops@example.com'])
+        self.assertIn('Alert: CPU', mail.outbox[0].subject)
+        self.assertEqual(mail.outbox[1].from_email, settings.DEFAULT_FROM_EMAIL)
+        self.assertIn('RESOLVED: CPU', mail.outbox[1].subject)

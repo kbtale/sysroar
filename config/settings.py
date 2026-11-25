@@ -23,6 +23,17 @@ ADMINS = [
     (ADMIN_NAME, ADMIN_EMAIL),
 ]
 
+EMAIL_BACKEND = env('EMAIL_BACKEND', default='django.core.mail.backends.smtp.EmailBackend')
+EMAIL_HOST = env('EMAIL_HOST', default='mailpit')
+EMAIL_PORT = env.int('EMAIL_PORT', default=1025)
+EMAIL_HOST_USER = env('EMAIL_HOST_USER', default='')
+EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD', default='')
+EMAIL_USE_TLS = env.bool('EMAIL_USE_TLS', default=False)
+EMAIL_USE_SSL = env.bool('EMAIL_USE_SSL', default=False)
+EMAIL_TIMEOUT = env.int('EMAIL_TIMEOUT', default=10)
+DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL', default='alerts@sysroar.local')
+SERVER_EMAIL = env('SERVER_EMAIL', default=DEFAULT_FROM_EMAIL)
+
 SYSTEM_EVENT_THRESHOLDS = {
     'FAILED_AUTHENTICATION': env.int('FAILED_AUTH_THRESHOLD', default=10),
     'WEBHOOK_DISPATCH_FAILURE': env.int('WEBHOOK_FAIL_THRESHOLD', default=5),
