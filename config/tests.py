@@ -97,3 +97,23 @@ class LoggingConfigurationTests(SimpleTestCase):
         self.assertEqual(elk_logging['handlers']['logstash']['port'], 5044)
         self.assertEqual(elk_logging['handlers']['logstash']['formatter'], 'json')
         self.assertEqual(elk_logging['handlers']['logstash']['class'], 'config.logging_utils.JsonTcpLogHandler')
+
+
+class ComposeProfileTests(SimpleTestCase):
+    def test_elk_services_live_behind_elk_profile_in_main_compose(self):
+        compose_path = settings.BASE_DIR / 'docker-compose.yml'
+        legacy_elk_path = settings.BASE_DIR / 'docker-compose.elk.yml'
+        self.assertFalse(legacy_elk_path.exists())
+
+        content = compose_path.read_text(encoding='utf-8')
+        for service in ('elasticsearch:', 'logstash:', 'kibana:'):
+            self.assertIn(service, content)
+        self.assertGreaterEqual(content.count('- elk'), 3)
+        self.assertIn('LOGSTASH_PORT=5044', content)
+
+    def test_logstash_pipeline_separates_syslog_5000_and_json_lines_5044(self):
+        pipeline_path = settings.BASE_DIR / 'logstash' / 'pipeline' / 'syslog.conf'
+        content = pipeline_path.read_text(encoding='utf-8')
+        self.assertIn('port => 5000', content)
+        self.assertIn('port => 5044', content)
+        self.assertIn('codec => json_lines', content)
