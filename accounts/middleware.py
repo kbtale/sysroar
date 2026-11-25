@@ -1,31 +1,30 @@
-import threading
-from django.core.exceptions import DisallowedHost
+from contextvars import ContextVar
 
-_thread_locals = threading.local()
+_current_company_id = ContextVar('current_company_id', default=None)
+
 
 def get_current_company_id():
-    """
-    Retrieves the company ID associated with the current thread.
-    Returns None if no company is associated (e.g., system tasks or unauthenticated requests).
-    """
-    return getattr(_thread_locals, 'company_id', None)
+    return _current_company_id.get()
+
+
+def set_current_company_id(company_id):
+    return _current_company_id.set(company_id)
+
+
+def reset_current_company_id(token):
+    _current_company_id.reset(token)
+
 
 class CurrentTenantMiddleware:
-    """
-    Middleware that extracts the company_id from the authenticated user
-    and stores it in thread-local storage for use by the TenantManager.
-    """
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request):
+        company_id = None
         if hasattr(request, 'user') and request.user.is_authenticated:
-            comp_id = getattr(request.user, 'company_id', None)
-            if comp_id:
-                _thread_locals.company_id = comp_id
-        
+            company_id = getattr(request.user, 'company_id', None)
+        token = set_current_company_id(company_id)
         try:
             return self.get_response(request)
         finally:
-            if hasattr(_thread_locals, 'company_id'):
-                del _thread_locals.company_id
+            reset_current_company_id(token)

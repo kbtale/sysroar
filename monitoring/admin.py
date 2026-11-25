@@ -1,9 +1,10 @@
 from django.contrib import admin
-from .models import Server, AlertRule, ServerAlertState
+from accounts.admin import TenantAwareModelAdmin
+from .models import AlertRule, Server, ServerAlertState
 
 
 @admin.register(Server)
-class ServerAdmin(admin.ModelAdmin):
+class ServerAdmin(TenantAwareModelAdmin):
     list_display = ('name', 'ip_address', 'company', 'is_active', 'telemetry_cadence', 'last_ping')
     list_filter = ('is_active', 'company')
     search_fields = ('name', 'ip_address')
@@ -11,12 +12,12 @@ class ServerAdmin(admin.ModelAdmin):
 
 
 @admin.register(AlertRule)
-class AlertRuleAdmin(admin.ModelAdmin):
+class AlertRuleAdmin(TenantAwareModelAdmin):
     list_display = ('server', 'metric_type', 'threshold_value', 'notification_type', 'is_active')
     list_filter = ('metric_type', 'notification_type', 'is_active')
 
 
 @admin.register(ServerAlertState)
-class ServerAlertStateAdmin(admin.ModelAdmin):
+class ServerAlertStateAdmin(TenantAwareModelAdmin):
     list_display = ('server', 'current_cooldown_tier', 'consecutive_healthy_count', 'last_alert_sent_at')
     readonly_fields = ('server',)
