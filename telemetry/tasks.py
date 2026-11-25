@@ -1,19 +1,14 @@
 import logging
-from datetime import timedelta
 from asgiref.sync import async_to_sync
 from celery import shared_task
 from channels.layers import get_channel_layer
-from django.conf import settings
-from django.db.models import Avg
-from django.db.models.functions import TruncHour
-from django.utils import timezone
 from .ingestion import ack_batch, nack_batch, pop_batch
-from .models import MetricLog, MetricRollup
+from .models import MetricLog
 
 logger = logging.getLogger(__name__)
 
 
-@shared_task(name='telemetry.process_telemetry_batch')
+@shared_task(name='telemetry.process_telemetry_batch', ignore_result=True)
 def process_telemetry_batch():
     batch_data = pop_batch(batch_size=1000)
     if not batch_data:
@@ -53,7 +48,7 @@ def process_telemetry_batch():
 
     if logs_to_create:
         try:
-            created_instances = MetricLog.unscoped.bulk_create(logs_to_create)
+            created_instances = MetricLog.unscoped.bulk_create(logs_to_create, ignore_conflicts=True)
             ack_batch()
             logger.info(f'Successfully persisted batch of {len(created_instances)} metrics to PostgreSQL.')
 
@@ -76,55 +71,3 @@ def process_telemetry_batch():
             raise
 
     return len(logs_to_create)
-
-
-@shared_task(name='telemetry.rollup_telemetry_data')
-def rollup_telemetry_data():
-    now = timezone.now()
-    last_hour = now - timedelta(hours=1)
-    start_time = last_hour.replace(minute=0, second=0, microsecond=0)
-    end_time = start_time + timedelta(hours=1)
-
-    logger.info(f'Starting telemetry rollup for window: {start_time} to {end_time}')
-
-    aggregates = MetricLog.unscoped.filter(
-        timestamp__range=(start_time, end_time)
-    ).values('server_id', 'company_id').annotate(
-        hour=TruncHour('timestamp'),
-        avg_cpu_val=Avg('cpu_usage'),
-        avg_ram_val=Avg('ram_usage'),
-        avg_disk_val=Avg('disk_io'),
-    )
-
-    rollups_to_create = []
-    for agg in aggregates:
-        rollups_to_create.append(MetricRollup(
-            server_id=agg['server_id'],
-            company_id=agg['company_id'],
-            timestamp=agg['hour'],
-            avg_cpu=agg['avg_cpu_val'],
-            avg_ram=agg['avg_ram_val'],
-            avg_disk_io=agg['avg_disk_val'],
-        ))
-
-    if rollups_to_create:
-        MetricRollup.unscoped.bulk_create(
-            rollups_to_create,
-            ignore_conflicts=True,
-        )
-        logger.info(f'Created {len(rollups_to_create)} rollup records.')
-    else:
-        logger.info('No metric logs found for the previous hour; no rollups created.')
-
-
-@shared_task(name='telemetry.purge_old_telemetry')
-def purge_old_telemetry():
-    retention_days = getattr(settings, 'TELEMETRY_RETENTION_DAYS', 7)
-    cutoff_date = timezone.now() - timedelta(days=retention_days)
-
-    logger.info(f'Starting telemetry purge for records older than {cutoff_date} ({retention_days} days retention)')
-
-    deleted_count, _ = MetricLog.unscoped.filter(timestamp__lt=cutoff_date).delete()
-
-    logger.info(f'Successfully purged {deleted_count} stale MetricLog records.')
-    return deleted_count
