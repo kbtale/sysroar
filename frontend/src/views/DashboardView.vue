@@ -13,6 +13,10 @@ onMounted(async () => {
   await telemetry.fetchServers()
 })
 
+onUnmounted(() => {
+  telemetry.disconnectAll()
+})
+
 function handleLogout() {
   auth.logout()
   router.push('/login')
