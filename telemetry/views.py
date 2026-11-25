@@ -9,6 +9,7 @@ from rest_framework.views import APIView
 from monitoring.models import Server
 from .ingestion import push_to_redis_queue
 from .serializers import MetricLogSerializer
+from .throttling import ServerIngestRateThrottle
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,7 @@ def _extract_remote_ip(request):
 
 class TelemetryIngestView(APIView):
     permission_classes = [IsAuthenticated]
+    throttle_classes = [ServerIngestRateThrottle]
 
     def post(self, request, *args, **kwargs):
         serializer = MetricLogSerializer(data=request.data, context={'request': request})

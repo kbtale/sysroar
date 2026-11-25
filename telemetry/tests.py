@@ -254,3 +254,87 @@ class WebSocketConsumerAuthTests(TransactionTestCase):
             self.assertFalse(no_ticket_connected)
         finally:
             await no_ticket.disconnect()
+
+
+class TelemetryIngestThrottleTests(APITestCase):
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+        self.company_a = Company.objects.create(name='Throttle Co A')
+        self.company_b = Company.objects.create(name='Throttle Co B')
+        self.user_a = User.objects.create_user(username='throttle_user', password='password123', company=self.company_a)
+        self.token_a = Token.objects.create(user=self.user_a)
+        self.server_a1 = Server.unscoped.create(name='Svr A1', company=self.company_a)
+        self.server_a2 = Server.unscoped.create(name='Svr A2', company=self.company_a)
+        self.server_b1 = Server.unscoped.create(name='Svr B1', company=self.company_b)
+        self.ingest_url = reverse('telemetry-ingest')
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.token_a.key}')
+        self.redis_con = get_redis_connection('default')
+        self.redis_con.delete(TELEMETRY_QUEUE_KEY)
+
+    def tearDown(self):
+        from django.core.cache import cache
+
+        cache.clear()
+        self.redis_con.delete(TELEMETRY_QUEUE_KEY)
+
+    def test_ingest_is_throttled_per_server_not_per_user(self):
+        from telemetry.throttling import ServerIngestRateThrottle
+
+        with patch.object(ServerIngestRateThrottle, 'get_rate', return_value='2/min'):
+            for _ in range(2):
+                resp = self.client.post(
+                    self.ingest_url,
+                    {'server': str(self.server_a1.id), 'cpu_usage': 20.0, 'ram_usage': 30.0},
+                    format='json',
+                )
+                self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED)
+
+            throttled = self.client.post(
+                self.ingest_url,
+                {'server': str(self.server_a1.id), 'cpu_usage': 20.0, 'ram_usage': 30.0},
+                format='json',
+            )
+            self.assertEqual(throttled.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+            for _ in range(2):
+                resp = self.client.post(
+                    self.ingest_url,
+                    {'server': str(self.server_a2.id), 'cpu_usage': 25.0, 'ram_usage': 35.0},
+                    format='json',
+                )
+                self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED)
+
+            throttled_a2 = self.client.post(
+                self.ingest_url,
+                {'server': str(self.server_a2.id), 'cpu_usage': 25.0, 'ram_usage': 35.0},
+                format='json',
+            )
+            self.assertEqual(throttled_a2.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_invalid_or_cross_tenant_server_ids_share_user_bucket(self):
+        import uuid
+        from telemetry.throttling import ServerIngestRateThrottle
+
+        with patch.object(ServerIngestRateThrottle, 'get_rate', return_value='2/min'):
+            resp1 = self.client.post(
+                self.ingest_url,
+                {'server': str(self.server_b1.id), 'cpu_usage': 20.0, 'ram_usage': 30.0},
+                format='json',
+            )
+            self.assertEqual(resp1.status_code, status.HTTP_400_BAD_REQUEST)
+
+            resp2 = self.client.post(
+                self.ingest_url,
+                {'server': str(uuid.uuid4()), 'cpu_usage': 20.0, 'ram_usage': 30.0},
+                format='json',
+            )
+            self.assertEqual(resp2.status_code, status.HTTP_400_BAD_REQUEST)
+
+            resp3 = self.client.post(
+                self.ingest_url,
+                {'server': str(uuid.uuid4()), 'cpu_usage': 20.0, 'ram_usage': 30.0},
+                format='json',
+            )
+            self.assertEqual(resp3.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
