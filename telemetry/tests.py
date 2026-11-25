@@ -1,6 +1,7 @@
 import json
 from unittest.mock import patch
 from django.contrib.auth import get_user_model
+from django.test import TransactionTestCase
 from django.urls import reverse
 from django_redis import get_redis_connection
 from rest_framework import status
@@ -156,3 +157,100 @@ class TelemetryIngestionTests(APITestCase):
 
         invalid_resp = self.client.get(self.config_url, HTTP_X_SERVER_ID='not-a-uuid')
         self.assertEqual(invalid_resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class WebSocketConsumerAuthTests(TransactionTestCase):
+    def setUp(self):
+        self.company_a = Company.objects.create(name='WS Company A')
+        self.company_b = Company.objects.create(name='WS Company B')
+        self.user_a = User.objects.create_user(username='ws_user_a', password='password123', company=self.company_a)
+        self.server_a = Server.unscoped.create(name='WS Server A', company=self.company_a)
+        self.server_b = Server.unscoped.create(name='WS Server B', company=self.company_b)
+
+    def tearDown(self):
+        from django.db import connections
+
+        connections.close_all()
+
+    @patch('monitoring.tasks.record_system_event.delay')
+    async def test_ws_connect_succeeds_for_own_server_and_consumes_ticket_once(self, mock_event):
+        from asgiref.sync import sync_to_async
+        from channels.testing import WebsocketCommunicator
+        from accounts.authentication import ticket_manager
+        from config.asgi import application
+
+        ticket = await sync_to_async(ticket_manager.create_ticket)(str(self.user_a.id))
+        communicator = WebsocketCommunicator(
+            application,
+            f'/ws/telemetry/{self.server_a.id}/?ticket={ticket}',
+            headers=[(b'origin', b'http://localhost:5173')],
+        )
+        try:
+            connected, _ = await communicator.connect(timeout=10)
+            self.assertTrue(connected)
+        finally:
+            await communicator.disconnect()
+
+        replay = WebsocketCommunicator(
+            application,
+            f'/ws/telemetry/{self.server_a.id}/?ticket={ticket}',
+            headers=[(b'origin', b'http://localhost:5173')],
+        )
+        try:
+            replay_connected, _ = await replay.connect(timeout=10)
+            self.assertFalse(replay_connected)
+        finally:
+            await replay.disconnect()
+
+        mock_event.assert_not_called()
+
+    @patch('monitoring.tasks.record_system_event.delay')
+    async def test_ws_connect_rejects_cross_tenant_server(self, mock_event):
+        from asgiref.sync import sync_to_async
+        from channels.testing import WebsocketCommunicator
+        from accounts.authentication import ticket_manager
+        from config.asgi import application
+
+        ticket = await sync_to_async(ticket_manager.create_ticket)(str(self.user_a.id))
+        communicator = WebsocketCommunicator(
+            application,
+            f'/ws/telemetry/{self.server_b.id}/?ticket={ticket}',
+            headers=[(b'origin', b'http://localhost:5173')],
+        )
+        try:
+            connected, close_code = await communicator.connect(timeout=15)
+            self.assertFalse(connected)
+            self.assertEqual(close_code, 4403)
+        finally:
+            await communicator.disconnect()
+
+        mock_event.assert_called_once()
+
+    async def test_ws_connect_rejects_disallowed_origin_and_missing_ticket(self):
+        from asgiref.sync import sync_to_async
+        from channels.testing import WebsocketCommunicator
+        from accounts.authentication import ticket_manager
+        from config.asgi import application
+
+        ticket = await sync_to_async(ticket_manager.create_ticket)(str(self.user_a.id))
+        bad_origin = WebsocketCommunicator(
+            application,
+            f'/ws/telemetry/{self.server_a.id}/?ticket={ticket}',
+            headers=[(b'origin', b'https://evil.example')],
+        )
+        try:
+            bad_origin_connected, _ = await bad_origin.connect(timeout=10)
+            self.assertFalse(bad_origin_connected)
+        finally:
+            await bad_origin.disconnect()
+
+        no_ticket = WebsocketCommunicator(
+            application,
+            f'/ws/telemetry/{self.server_a.id}/',
+            headers=[(b'origin', b'http://localhost:5173')],
+        )
+        try:
+            no_ticket_connected, _ = await no_ticket.connect(timeout=10)
+            self.assertFalse(no_ticket_connected)
+        finally:
+            await no_ticket.disconnect()
