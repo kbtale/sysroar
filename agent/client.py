@@ -1,48 +1,65 @@
-import os
-import time
 import logging
 import logging.handlers
+import os
 import threading
+import time
+from datetime import datetime, timezone
 import psutil
 import requests
 from dotenv import load_dotenv
-from datetime import datetime, timezone
 
-# Load configuration from .env file if it exists
 load_dotenv()
 
+MIN_TELEMETRY_CADENCE = 5
+MAX_TELEMETRY_CADENCE = 3600
+DEFAULT_TELEMETRY_CADENCE = 30
+VALID_LOG_LEVELS = {'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'}
 
-# Backend Configuration
-API_URL = os.getenv("SYSROAR_API_URL", "http://localhost:8000/api/telemetry/ingest/")
-CONFIG_URL = os.getenv("SYSROAR_CONFIG_URL", "http://localhost:8000/api/telemetry/config/")
-API_TOKEN = os.getenv("SYSROAR_API_TOKEN")
-SERVER_ID = os.getenv("SYSROAR_SERVER_ID")
-COMPANY_ID = os.getenv("SYSROAR_COMPANY_ID")
+API_URL = os.getenv('SYSROAR_API_URL', 'http://localhost:8000/api/telemetry/ingest/')
+CONFIG_URL = os.getenv('SYSROAR_CONFIG_URL', 'http://localhost:8000/api/telemetry/config/')
+API_TOKEN = os.getenv('SYSROAR_API_TOKEN')
+SERVER_ID = os.getenv('SYSROAR_SERVER_ID')
 
-# Logstash Configuration
-LOGSTASH_HOST = os.getenv("SYSROAR_LOGSTASH_HOST", "localhost")
-LOGSTASH_PORT = int(os.getenv("SYSROAR_LOGSTASH_PORT", 5000))
+LOGSTASH_HOST = os.getenv('SYSROAR_LOGSTASH_HOST', 'localhost')
+LOGSTASH_PORT = int(os.getenv('SYSROAR_LOGSTASH_PORT', 5000))
 
-# Global settings that can be updated dynamically
+
+def _validate_cadence(value, fallback=DEFAULT_TELEMETRY_CADENCE):
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return fallback
+    if parsed < MIN_TELEMETRY_CADENCE:
+        return MIN_TELEMETRY_CADENCE
+    if parsed > MAX_TELEMETRY_CADENCE:
+        return MAX_TELEMETRY_CADENCE
+    return parsed
+
+
+def _apply_log_level(level_name):
+    if not isinstance(level_name, str):
+        return False
+    normalized = level_name.upper()
+    if normalized not in VALID_LOG_LEVELS:
+        return False
+    logger.setLevel(getattr(logging, normalized))
+    return True
+
+
 settings = {
-    "telemetry_cadence": int(os.getenv("SYSROAR_TELEMETRY_CADENCE", 30)),
-    "log_level": "INFO"
+    'telemetry_cadence': _validate_cadence(os.getenv('SYSROAR_TELEMETRY_CADENCE', DEFAULT_TELEMETRY_CADENCE)),
+    'log_level': 'INFO',
 }
 
-# Logger setup
-logger = logging.getLogger("sysroar-agent")
+logger = logging.getLogger('sysroar-agent')
 logger.setLevel(logging.INFO)
 
-# Console handler (always active)
 console_handler = logging.StreamHandler()
 console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
 logger.addHandler(console_handler)
 
+
 def configure_syslog_handler(host, port, server_id):
-    """
-    Attaches a SysLogHandler to the agent logger.
-    Returns the handler on success, or None if the connection fails.
-    """
     try:
         handler = logging.handlers.SysLogHandler(address=(host, port))
         handler.setFormatter(
@@ -51,10 +68,10 @@ def configure_syslog_handler(host, port, server_id):
         logger.addHandler(handler)
         return handler
     except Exception as e:
-        logger.warning(f"Syslog handler could not connect: {e}. Logs will only go to stdout.")
+        logger.warning(f'Syslog handler could not connect: {e}. Logs will only go to stdout.')
         return None
 
-# Initialize syslog handler at startup
+
 configure_syslog_handler(LOGSTASH_HOST, LOGSTASH_PORT, SERVER_ID)
 
 
@@ -67,79 +84,79 @@ class TelemetryCollector:
         cpu_usage = psutil.cpu_percent(interval=None)
         memory = psutil.virtual_memory()
         ram_usage = memory.percent
-        
+
         current_disk_io = psutil.disk_io_counters()
-        read_bytes = current_disk_io.read_bytes - self.last_disk_io.read_bytes
-        write_bytes = current_disk_io.write_bytes - self.last_disk_io.write_bytes
+        if current_disk_io is not None and self.last_disk_io is not None:
+            read_bytes = max(0, current_disk_io.read_bytes - self.last_disk_io.read_bytes)
+            write_bytes = max(0, current_disk_io.write_bytes - self.last_disk_io.write_bytes)
+            disk_throughput_mb = (read_bytes + write_bytes) / (1024 * 1024)
+        else:
+            disk_throughput_mb = 0.0
         self.last_disk_io = current_disk_io
-        
-        disk_throughput_mb = (read_bytes + write_bytes) / (1024 * 1024)
 
         return {
-            "server": SERVER_ID,
-            "company": COMPANY_ID,
-            "cpu_usage": float(cpu_usage),
-            "ram_usage": float(ram_usage),
-            "disk_io": float(disk_throughput_mb),
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            'server': SERVER_ID,
+            'cpu_usage': float(cpu_usage),
+            'ram_usage': float(ram_usage),
+            'disk_io': float(disk_throughput_mb),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
         }
+
 
 def push_telemetry(payload):
     headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Token {API_TOKEN}"
+        'Content-Type': 'application/json',
+        'Authorization': f'Token {API_TOKEN}',
     }
-    
+
     try:
         response = requests.post(API_URL, json=payload, headers=headers, timeout=10)
         if response.status_code == 202:
-            logger.info("Telemetry successfully pushed (202 Accepted).")
+            logger.info('Telemetry successfully pushed (202 Accepted).')
         else:
-            logger.warning(f"Unexpected response from server: {response.status_code} - {response.text}")
+            logger.warning(f'Unexpected response from server: {response.status_code} - {response.text}')
     except Exception as e:
-        logger.error(f"Failed to connect to backend: {e}")
+        logger.error(f'Failed to connect to backend: {e}')
+
 
 def fetch_configuration():
-    """
-    Fetches the latest server-side configuration.
-    """
     headers = {
-        "Authorization": f"Token {API_TOKEN}",
-        "X-Server-ID": SERVER_ID
+        'Authorization': f'Token {API_TOKEN}',
+        'X-Server-ID': SERVER_ID,
     }
     try:
         response = requests.get(CONFIG_URL, headers=headers, timeout=10)
         if response.status_code == 200:
             new_config = response.json()
-            settings.update(new_config)
-            logger.info(f"Configuration synchronized: {settings}")
-            
-            # Apply log level if it changed
-            if "log_level" in new_config:
-                logging.getLogger().setLevel(new_config["log_level"])
+            if 'telemetry_cadence' in new_config:
+                settings['telemetry_cadence'] = _validate_cadence(
+                    new_config['telemetry_cadence'],
+                    fallback=settings['telemetry_cadence'],
+                )
+            if 'log_level' in new_config and _apply_log_level(new_config['log_level']):
+                settings['log_level'] = new_config['log_level'].upper()
+            logger.info(f'Configuration synchronized: {settings}')
         else:
-            logger.warning(f"Failed to fetch config: {response.status_code}")
+            logger.warning(f'Failed to fetch config: {response.status_code}')
     except Exception as e:
-        logger.error(f"Error fetching configuration: {e}")
+        logger.error(f'Error fetching configuration: {e}')
+
 
 def config_polling_loop():
-    """
-    Background loop that polls for configuration every hour.
-    """
     while True:
         fetch_configuration()
-        time.sleep(3600) # Poll every 1 hour
+        time.sleep(3600)
+
 
 def run_agent():
-    if not all([API_TOKEN, SERVER_ID, COMPANY_ID]):
-        logger.error("Missing mandatory environment variables.")
+    if not all([API_TOKEN, SERVER_ID]):
+        logger.error('Missing mandatory environment variables.')
         return
 
-    # Start configuration polling in a background thread
     config_thread = threading.Thread(target=config_polling_loop, daemon=True)
     config_thread.start()
 
-    logger.info("Starting SysRoar Remote Agent.")
+    logger.info('Starting SysRoar Remote Agent.')
     collector = TelemetryCollector()
 
     while True:
@@ -147,9 +164,10 @@ def run_agent():
             payload = collector.collect()
             push_telemetry(payload)
         except Exception as e:
-            logger.error(f"Error in telemetry loop: {e}")
-        
-        time.sleep(settings["telemetry_cadence"])
+            logger.error(f'Error in telemetry loop: {e}')
 
-if __name__ == "__main__":
+        time.sleep(settings['telemetry_cadence'])
+
+
+if __name__ == '__main__':
     run_agent()
