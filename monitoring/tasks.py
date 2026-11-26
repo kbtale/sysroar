@@ -1,60 +1,220 @@
 import logging
-from django.db import transaction, DatabaseError
-from django.db.models import Count
-from django.utils import timezone
+from datetime import timedelta
+from celery import shared_task
 from django.conf import settings
 from django.core.mail import send_mail
-from celery import shared_task
-from datetime import timedelta
-from .models import AlertRule, Server, ServerAlertState, SystemEvent
-from .state_machine import AlertStateMachine
+from django.db import DatabaseError, transaction
+from django.db.models import Avg, Count, Max, Min
+from django.utils import timezone
 from telemetry.models import MetricLog
 from telemetry.notifications.dispatcher import NotificationDispatcher
+from .models import AlertRule, AlertState, NotificationOutbox, Server, ServerAlertState, SystemEvent
+from .state_machine import AlertStateMachine
 
 logger = logging.getLogger(__name__)
 
-@shared_task(name="monitoring.evaluate_metrics_batch")
+_METRIC_COLUMN_MAP = {
+    'cpu': 'cpu_usage',
+    'ram': 'ram_usage',
+    'disk': 'disk_usage',
+    'disk_io': 'disk_io',
+    'swap': 'swap_usage',
+    'load': 'load_1m',
+}
+
+_AGG_FUNC_MAP = {
+    'avg': Avg,
+    'max': Max,
+    'min': Min,
+}
+
+
+def _aggregate_rule_window(rule, now):
+    column = _METRIC_COLUMN_MAP.get(rule.metric_type)
+    if not column:
+        return None
+    agg_cls = _AGG_FUNC_MAP.get(rule.aggregation, Avg)
+    window_seconds = max(int(rule.duration_minutes or 0) * 60, int(rule.server.telemetry_cadence or 30) * 2, 60)
+    window_start = now - timedelta(seconds=window_seconds)
+    result = MetricLog.unscoped.filter(
+        company_id=rule.company_id,
+        server_id=rule.server_id,
+        timestamp__gte=window_start,
+        timestamp__lte=now,
+    ).aggregate(val=agg_cls(column))
+    return result.get('val')
+
+
+def _compute_backoff_seconds(attempts: int) -> int:
+    return min(30 * (2 ** max(attempts - 1, 0)), 900)
+
+
+@shared_task(name='monitoring.evaluate_alert_rules', ignore_result=True)
+def evaluate_alert_rules(now=None, eval_interval_seconds: int = 30):
+    now = now or timezone.now()
+    active_rules = list(
+        AlertRule.unscoped.filter(is_active=True, server__is_active=True)
+        .exclude(metric_type='no_data')
+        .select_related('server')
+    )
+    if not active_rules:
+        return {'evaluated': 0, 'enqueued': 0}
+
+    evaluated = 0
+    enqueued = 0
+
+    for rule in active_rules:
+        agg_value = _aggregate_rule_window(rule, now)
+        if agg_value is None:
+            continue
+        evaluated += 1
+        try:
+            with transaction.atomic():
+                state, _ = AlertState.unscoped.select_for_update().get_or_create(
+                    rule=rule,
+                    defaults={'company_id': rule.company_id},
+                )
+                action = AlertStateMachine.evaluate_rule_state(
+                    state,
+                    rule,
+                    float(agg_value),
+                    now=now,
+                    eval_interval_seconds=eval_interval_seconds,
+                )
+                if action in ('ALERT', 'RESOLUTION'):
+                    outbox = NotificationOutbox.unscoped.create(
+                        company_id=rule.company_id,
+                        server=rule.server,
+                        rule=rule,
+                        event_type=action,
+                        payload={
+                            'value': round(float(agg_value), 2),
+                            'severity': rule.severity,
+                            'operator': rule.get_operator_display(),
+                            'threshold': rule.threshold_value,
+                            'timestamp': now.isoformat(),
+                        },
+                    )
+                    enqueued += 1
+                    outbox_id = str(outbox.id)
+                    transaction.on_commit(lambda oid=outbox_id: deliver_notification_outbox.delay(oid))
+        except DatabaseError as exc:
+            logger.error(
+                f'POSTGRES_TRANSACTION_ROLLBACK | Failed evaluating rule {rule.id}: {exc}',
+                exc_info=True,
+            )
+            record_system_event.delay(
+                event_type='POSTGRES_TRANSACTION_ROLLBACK',
+                severity='CRITICAL',
+                context={'rule_id': str(rule.id), 'error': str(exc)},
+            )
+
+    return {'evaluated': evaluated, 'enqueued': enqueued}
+
+
+@shared_task(name='monitoring.deliver_notification_outbox', ignore_result=True)
+def deliver_notification_outbox(outbox_id: str):
+    now = timezone.now()
+    with transaction.atomic():
+        outbox = (
+            NotificationOutbox.unscoped.select_for_update()
+            .select_related('server', 'rule')
+            .filter(id=outbox_id, status='PENDING')
+            .first()
+        )
+        if outbox is None:
+            return False
+        server = outbox.server
+        rule = outbox.rule
+        event_type = outbox.event_type
+        payload = dict(outbox.payload or {})
+
+    success = False
+    error_msg = ''
+    try:
+        if event_type == 'ALERT':
+            success = NotificationDispatcher.dispatch_alert(server, rule, payload)
+        else:
+            success = NotificationDispatcher.dispatch_resolution(server, rule, payload)
+        if not success:
+            error_msg = 'Notification strategy returned False'
+    except Exception as exc:
+        error_msg = str(exc)
+        logger.error(f'Outbox {outbox_id} delivery exception: {exc}', exc_info=True)
+
+    with transaction.atomic():
+        outbox = NotificationOutbox.unscoped.select_for_update().filter(id=outbox_id).first()
+        if outbox is None or outbox.status != 'PENDING':
+            return success
+        outbox.attempts += 1
+        if success:
+            outbox.status = 'DELIVERED'
+            outbox.delivered_at = timezone.now()
+            outbox.last_error = ''
+            outbox.save()
+            return True
+
+        outbox.last_error = error_msg[:1000]
+        if outbox.attempts >= outbox.max_attempts:
+            outbox.status = 'FAILED'
+            outbox.save()
+            record_system_event.delay(
+                event_type='NOTIFICATION_OUTBOX_EXHAUSTED',
+                severity='ERROR',
+                context={'outbox_id': str(outbox.id), 'rule_id': str(outbox.rule_id), 'error': outbox.last_error},
+            )
+            return False
+
+        backoff = _compute_backoff_seconds(outbox.attempts)
+        outbox.next_attempt_at = now + timedelta(seconds=backoff)
+        outbox.save()
+        transaction.on_commit(
+            lambda oid=str(outbox.id), cd=backoff: deliver_notification_outbox.apply_async(args=[oid], countdown=cd)
+        )
+        return False
+
+
+@shared_task(name='monitoring.retry_pending_outbox', ignore_result=True)
+def retry_pending_outbox():
+    now = timezone.now()
+    due_ids = list(
+        NotificationOutbox.unscoped.filter(status='PENDING', next_attempt_at__lte=now)
+        .values_list('id', flat=True)[:200]
+    )
+    for outbox_id in due_ids:
+        deliver_notification_outbox.delay(str(outbox_id))
+    return len(due_ids)
+
+
+@shared_task(name='monitoring.evaluate_metrics_batch', ignore_result=True)
 def evaluate_metrics_batch(metric_log_ids):
-    """
-    Evaluates a batch of metric logs against configured alert rules.
-    """
-    logs = MetricLog.unscoped.filter(id__in=metric_log_ids).select_related('server')
+    logs = MetricLog.unscoped.filter(id__in=metric_log_ids).select_related('server').order_by('timestamp')
     if not logs:
         return
-    
+
     server_ids = {log.server_id for log in logs}
     rules = AlertRule.unscoped.filter(server_id__in=server_ids, is_active=True)
-    
+
     rules_by_server = {}
     for rule in rules:
-        if rule.server_id not in rules_by_server:
-            rules_by_server[rule.server_id] = []
-        rules_by_server[rule.server_id].append(rule)
+        rules_by_server.setdefault(rule.server_id, []).append(rule)
 
     for log in logs:
         server_rules = rules_by_server.get(log.server_id, [])
+        if not server_rules:
+            continue
         breached_rules_with_context = []
-        
-        for rule in server_rules:
-            value = None
-            if rule.metric_type == 'cpu':
-                value = log.cpu_usage
-            elif rule.metric_type == 'ram':
-                value = log.ram_usage
-            elif rule.metric_type == 'disk':
-                value = log.disk_io
 
-            if value is not None and value > rule.threshold_value:
-                logger.info(
-                    f"Threshold breached: {rule} on {log.server.name} "
-                    f"({rule.metric_type}: {value} > {rule.threshold_value})"
-                )
+        for rule in server_rules:
+            col = _METRIC_COLUMN_MAP.get(rule.metric_type)
+            value = getattr(log, col, None) if col else None
+            if value is not None and AlertStateMachine.evaluate_condition(value, rule.operator, rule.threshold_value):
                 breached_rules_with_context.append({
                     'rule': rule,
                     'context': {
                         'value': value,
-                        'timestamp': log.timestamp.isoformat() if log.timestamp else None
-                    }
+                        'timestamp': log.timestamp.isoformat() if log.timestamp else None,
+                    },
                 })
 
         if breached_rules_with_context:
@@ -62,139 +222,111 @@ def evaluate_metrics_batch(metric_log_ids):
         else:
             handle_server_healthy(log.server_id)
 
+
 def handle_server_breach(server_id, breached_rules_with_context):
-    """
-    Manages the alert state for a server when a breach is detected.
-    Uses row-level locking to prevent concurrent workers from sending duplicate alerts.
-    """
     try:
         with transaction.atomic():
-            # Lock the state row for this server
             server = Server.unscoped.get(id=server_id)
-            state, created = ServerAlertState.unscoped.select_for_update().get_or_create(
+            state, _ = ServerAlertState.unscoped.select_for_update().get_or_create(
                 server_id=server_id,
-                defaults={'company_id': server.company_id}
+                defaults={'company_id': server.company_id},
             )
-            
-            # Reset consecutive healthy count - an anomaly stops the recovery process
             state.consecutive_healthy_count = 0
-            
             if AlertStateMachine.should_fire_alert(state):
                 dispatch_alert_notifications(server, breached_rules_with_context)
             else:
                 state.save()
     except DatabaseError as e:
         logger.error(
-            f"POSTGRES_TRANSACTION_ROLLBACK | Failed to update alert state for server {server_id}: {str(e)}",
+            f'POSTGRES_TRANSACTION_ROLLBACK | Failed to update alert state for server {server_id}: {str(e)}',
             exc_info=True,
         )
         record_system_event.delay(
             event_type='POSTGRES_TRANSACTION_ROLLBACK',
             severity='CRITICAL',
-            context={'server_id': server_id, 'operation': 'handle_server_breach', 'error': str(e)}
+            context={'server_id': server_id, 'operation': 'handle_server_breach', 'error': str(e)},
         )
         raise
 
+
 def handle_server_healthy(server_id):
-    """
-    Increments the healthy counter and checks for alert resolution.
-    """
     try:
         with transaction.atomic():
             server = Server.unscoped.get(id=server_id)
-            state, created = ServerAlertState.unscoped.select_for_update().get_or_create(
+            state, _ = ServerAlertState.unscoped.select_for_update().get_or_create(
                 server_id=server_id,
-                defaults={'company_id': server.company_id}
+                defaults={'company_id': server.company_id},
             )
-            
             if AlertStateMachine.record_healthy_signal(state):
-                # When resolved, notify ALL active rules for this server
                 rules = AlertRule.unscoped.filter(server=server, is_active=True)
                 dispatch_resolution_notifications(server, rules)
     except DatabaseError as e:
         logger.error(
-            f"POSTGRES_TRANSACTION_ROLLBACK | Failed to record healthy signal for server {server_id}: {str(e)}",
+            f'POSTGRES_TRANSACTION_ROLLBACK | Failed to record healthy signal for server {server_id}: {str(e)}',
             exc_info=True,
         )
         record_system_event.delay(
             event_type='POSTGRES_TRANSACTION_ROLLBACK',
             severity='CRITICAL',
-            context={'server_id': server_id, 'operation': 'handle_server_healthy', 'error': str(e)}
+            context={'server_id': server_id, 'operation': 'handle_server_healthy', 'error': str(e)},
         )
         raise
 
+
 def dispatch_alert_notifications(server, breached_rules_with_context):
-    """
-    Dispatches breach notifications using the Strategy Pattern dispatcher.
-    """
     for item in breached_rules_with_context:
-        rule = item['rule']
-        context = item['context']
-        NotificationDispatcher.dispatch_alert(server, rule, context)
-    
-    logger.info(f"AUDIT | ALERT | {server.name} | Total Rules: {len(breached_rules_with_context)}")
+        NotificationDispatcher.dispatch_alert(server, item['rule'], item['context'])
+    logger.info(f'AUDIT | ALERT | {server.name} | Total Rules: {len(breached_rules_with_context)}')
+
 
 def dispatch_resolution_notifications(server, rules):
-    """
-    Dispatches resolution notifications for all configured rules on the server.
-    """
-    context = {
-        'timestamp': timezone.now().isoformat()
-    }
+    context = {'timestamp': timezone.now().isoformat()}
     for rule in rules:
         NotificationDispatcher.dispatch_resolution(server, rule, context)
-    
-    logger.info(f"AUDIT | RESOLVED | {server.name} | Notified {rules.count()} channels")
+    logger.info(f'AUDIT | RESOLVED | {server.name} | Notified {rules.count()} channels')
 
-@shared_task(name="monitoring.record_system_event")
+
+@shared_task(name='monitoring.record_system_event', ignore_result=True)
 def record_system_event(event_type, severity='ERROR', context=None):
-    """
-    Asynchronously persists internal system events for observability.
-    """
     if context is None:
         context = {}
-    
     SystemEvent.objects.create(
         event_type=event_type,
         severity=severity,
-        context=context
+        context=context,
     )
 
-@shared_task(name="monitoring.check_system_health")
+
+@shared_task(name='monitoring.check_system_health', ignore_result=True)
 def check_system_health():
-    """
-    Periodically checks SystemEvents and alerts admins if thresholds are exceeded.
-    """
     if not getattr(settings, 'ADMINS', None) or not getattr(settings, 'SYSTEM_EVENT_THRESHOLDS', None):
         return
 
     time_threshold = timezone.now() - timedelta(minutes=15)
-    
-    # Aggregate recent errors
-    event_counts = SystemEvent.objects.filter(
-        timestamp__gte=time_threshold
-    ).values('event_type').annotate(count=Count('id'))
+    event_counts = (
+        SystemEvent.objects.filter(timestamp__gte=time_threshold)
+        .values('event_type')
+        .annotate(count=Count('id'))
+    )
 
     alerts_to_send = []
     for event in event_counts:
         event_type = event['event_type']
         count = event['count']
         threshold = settings.SYSTEM_EVENT_THRESHOLDS.get(event_type, float('inf'))
-        
         if count >= threshold:
-            alerts_to_send.append(f"- {event_type}: {count} occurrences (Threshold: {threshold})")
+            alerts_to_send.append(f'- {event_type}: {count} occurrences (Threshold: {threshold})')
 
     if alerts_to_send:
-        subject = "[SysRoar Alert] System Health Warning - Anomalies Detected"
+        subject = '[SysRoar Alert] System Health Warning - Anomalies Detected'
         message = (
-            "The following internal system events have exceeded their configured "
-            "thresholds in the last 15 minutes:\n\n"
+            'The following internal system events have exceeded their configured '
+            'thresholds in the last 15 minutes:\n\n'
         )
-        message += "\n".join(alerts_to_send)
-        message += "\n\nPlease check the server logs and SystemEvent dashboard for more details."
-        
+        message += '\n'.join(alerts_to_send)
+        message += '\n\nPlease check the server logs and SystemEvent dashboard for more details.'
+
         recipient_list = [admin[1] for admin in settings.ADMINS]
-        
         try:
             send_mail(
                 subject,
@@ -203,19 +335,17 @@ def check_system_health():
                 recipient_list,
                 fail_silently=False,
             )
-            logger.info("Dispatched system health alert to admins.")
+            logger.info('Dispatched system health alert to admins.')
         except Exception as e:
-            logger.error(f"Failed to dispatch system health alert: {e}")
+            logger.error(f'Failed to dispatch system health alert: {e}')
 
-@shared_task(name="monitoring.purge_old_system_events")
+
+@shared_task(name='monitoring.purge_old_system_events', ignore_result=True)
 def purge_old_system_events():
-    """
-    Deletes SystemEvents older than 30 days to keep the database lean.
-    """
     retention_days = 30
     cutoff_date = timezone.now() - timedelta(days=retention_days)
     deleted_count, _ = SystemEvent.objects.filter(timestamp__lt=cutoff_date).delete()
-    logger.info(f"Purged {deleted_count} outdated SystemEvent records.")
+    logger.info(f'Purged {deleted_count} outdated SystemEvent records.')
 
 
 @shared_task(name='monitoring.flush_heartbeats', ignore_result=True)

@@ -253,10 +253,6 @@ class IngestConsumer:
             group_name=self.group_name,
         )
 
-        if persisted_logs:
-            from monitoring.tasks import evaluate_metrics_batch
-            evaluate_metrics_batch.delay([str(log.id) for log in persisted_logs])
-
         return {
             'persisted': len(persisted_logs),
             'acked': acked,

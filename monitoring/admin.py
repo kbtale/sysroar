@@ -1,6 +1,6 @@
 from django.contrib import admin
 from accounts.admin import TenantAwareModelAdmin
-from .models import AlertRule, Server, ServerAlertState
+from .models import AlertRule, AlertState, NotificationOutbox, Server, ServerAlertState
 
 
 @admin.register(Server)
@@ -13,8 +13,31 @@ class ServerAdmin(TenantAwareModelAdmin):
 
 @admin.register(AlertRule)
 class AlertRuleAdmin(TenantAwareModelAdmin):
-    list_display = ('server', 'metric_type', 'threshold_value', 'notification_type', 'is_active')
-    list_filter = ('metric_type', 'notification_type', 'is_active')
+    list_display = (
+        'server',
+        'metric_type',
+        'operator',
+        'threshold_value',
+        'severity',
+        'duration_minutes',
+        'notification_type',
+        'is_active',
+    )
+    list_filter = ('metric_type', 'severity', 'notification_type', 'is_active')
+
+
+@admin.register(AlertState)
+class AlertStateAdmin(TenantAwareModelAdmin):
+    list_display = ('rule', 'status', 'current_cooldown_tier', 'is_flapping', 'last_value', 'last_evaluated_at')
+    list_filter = ('status', 'is_flapping')
+    readonly_fields = ('rule',)
+
+
+@admin.register(NotificationOutbox)
+class NotificationOutboxAdmin(TenantAwareModelAdmin):
+    list_display = ('event_type', 'server', 'rule', 'status', 'attempts', 'next_attempt_at', 'delivered_at')
+    list_filter = ('status', 'event_type')
+    readonly_fields = ('id', 'created_at', 'delivered_at')
 
 
 @admin.register(ServerAlertState)

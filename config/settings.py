@@ -179,6 +179,14 @@ CELERY_TIMEZONE = TIME_ZONE
 CELERY_TASK_IGNORE_RESULT = True
 
 CELERY_BEAT_SCHEDULE = {
+    'evaluate-alert-rules-every-30s': {
+        'task': 'monitoring.evaluate_alert_rules',
+        'schedule': 30.0,
+    },
+    'retry-pending-outbox-every-60s': {
+        'task': 'monitoring.retry_pending_outbox',
+        'schedule': 60.0,
+    },
     'flush-heartbeats-every-30s': {
         'task': 'monitoring.flush_heartbeats',
         'schedule': 30.0,
