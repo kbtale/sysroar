@@ -6,6 +6,7 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from monitoring.heartbeat import record_heartbeat, record_heartbeats_batch
 from monitoring.models import Server
 from .ingestion import push_batch_to_stream, push_to_stream
 from .parsers import GzipJSONParser
@@ -68,17 +69,14 @@ class TelemetryIngestView(APIView):
                 payload = _build_stream_payload(data, now)
                 push_to_stream(payload)
 
-                update_fields = {'last_ping': now}
                 ip_address = data.get('ip_address') or _extract_remote_ip(request)
-                if ip_address:
-                    update_fields['ip_address'] = ip_address
-                if data.get('os_info'):
-                    update_fields['os_info'] = data['os_info']
-
-                Server.unscoped.filter(
-                    id=data['server_id'],
+                record_heartbeat(
+                    server_id=data['server_id'],
                     company_id=data['company_id'],
-                ).update(**update_fields)
+                    seen_at=now,
+                    ip_address=ip_address,
+                    os_info=data.get('os_info'),
+                )
 
                 return Response(
                     {'status': 'accepted', 'message': 'Telemetry queued for processing.'},
@@ -155,8 +153,16 @@ class TelemetryBatchIngestView(APIView):
 
         try:
             push_batch_to_stream(payloads)
-            for server_id, update_fields in server_updates.items():
-                Server.unscoped.filter(id=server_id, company_id=company_id).update(**update_fields)
+            record_heartbeats_batch([
+                {
+                    'server_id': server_id,
+                    'company_id': company_id,
+                    'seen_at': update_fields['last_ping'],
+                    'ip_address': update_fields.get('ip_address'),
+                    'os_info': update_fields.get('os_info'),
+                }
+                for server_id, update_fields in server_updates.items()
+            ])
             return Response(
                 {'status': 'accepted', 'accepted': len(payloads)},
                 status=status.HTTP_202_ACCEPTED,
