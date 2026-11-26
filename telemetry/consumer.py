@@ -3,6 +3,7 @@ import logging
 import socket
 import threading
 import uuid
+from collections import defaultdict
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from django.db import IntegrityError, transaction
@@ -143,16 +144,23 @@ class IngestConsumer:
         )
         return False
 
-    def _broadcast_committed(self, broadcasts):
+    def _broadcast_company_batches(self, broadcasts):
+        if not broadcasts:
+            return
         channel_layer = get_channel_layer()
         if not channel_layer:
             return
-        for payload in broadcasts:
+
+        grouped = defaultdict(list)
+        for sample in broadcasts:
+            grouped[sample['company_id']].append(sample)
+
+        for company_id, samples in grouped.items():
             async_to_sync(channel_layer.group_send)(
-                f"server_{payload['server_id']}",
+                f'company_{company_id}',
                 {
-                    'type': 'telemetry_message',
-                    'message': payload,
+                    'type': 'telemetry_batch',
+                    'samples': samples,
                 },
             )
 
@@ -178,7 +186,10 @@ class IngestConsumer:
                 else:
                     retried_count += 1
 
-        return persisted_logs, committed_broadcasts, ack_ids, dlq_count, retried_count
+        if committed_broadcasts:
+            transaction.on_commit(lambda: self._broadcast_company_batches(committed_broadcasts))
+
+        return persisted_logs, ack_ids, dlq_count, retried_count
 
     def process_entries(self, entries, con=None):
         if not entries:
@@ -212,22 +223,21 @@ class IngestConsumer:
                     retried_count += 1
 
         persisted_logs = []
-        committed_broadcasts = []
 
         if valid_items:
             try:
+                batch_broadcasts = [item[3] for item in valid_items]
                 with transaction.atomic():
                     MetricLog.unscoped.bulk_create(
                         [item[2] for item in valid_items],
                         ignore_conflicts=True,
                     )
+                    transaction.on_commit(lambda: self._broadcast_company_batches(batch_broadcasts))
                 persisted_logs = [item[2] for item in valid_items]
-                committed_broadcasts = [item[3] for item in valid_items]
                 ack_ids.extend(item[0] for item in valid_items)
             except IntegrityError:
                 (
                     persisted_logs,
-                    committed_broadcasts,
                     isolated_acks,
                     isolated_dlq,
                     isolated_retried,
@@ -244,7 +254,6 @@ class IngestConsumer:
         )
 
         if persisted_logs:
-            self._broadcast_committed(committed_broadcasts)
             from monitoring.tasks import evaluate_metrics_batch
             evaluate_metrics_batch.delay([str(log.id) for log in persisted_logs])
 
