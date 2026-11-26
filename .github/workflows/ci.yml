@@ -107,6 +107,9 @@ jobs:
       - name: Run cargo test
         working-directory: agent
         run: cargo test
+      - name: Build agent binary
+        working-directory: agent
+        run: cargo build --bin sysroar-agent
       - uses: actions/setup-python@v5
         with:
           python-version: "3.14"
