@@ -296,3 +296,196 @@ class HeartbeatAndNoDataAlertTests(TestCase):
         self.assertEqual(recovered['flushed'], 1)
         self.assertEqual(recovered['recovered'], 1)
         self.assertEqual(SystemEvent.objects.filter(event_type='NO_DATA_RESOLVED').count(), 1)
+
+
+class AlertEngineV2Tests(TestCase):
+    def setUp(self):
+        self.company = Company.objects.create(name='AlertV2 Corp')
+        self.server = Server.unscoped.create(name='v2-srv-01', company=self.company, telemetry_cadence=30)
+        self.idle_server = Server.unscoped.create(name='v2-idle-01', company=self.company, telemetry_cadence=30)
+
+    def _add_metric(self, ts, cpu, ram=40.0):
+        return MetricLog.unscoped.create(
+            company=self.company,
+            server=self.server,
+            timestamp=ts,
+            cpu_usage=cpu,
+            ram_usage=ram,
+        )
+
+    @patch('monitoring.tasks.deliver_notification_outbox.delay')
+    def test_duration_honored_and_transient_spike_suppressed(self, mock_deliver):
+        from monitoring.models import AlertState, NotificationOutbox
+        from monitoring.tasks import evaluate_alert_rules
+
+        rule = AlertRule.unscoped.create(
+            company=self.company,
+            server=self.server,
+            metric_type='cpu',
+            operator='gt',
+            severity='warning',
+            aggregation='avg',
+            threshold_value=80.0,
+            duration_minutes=5,
+            notification_type='EMAIL',
+            notification_target='ops@example.com',
+        )
+
+        t0 = timezone.now() - timedelta(minutes=10)
+        self._add_metric(t0, 92.0)
+        res1 = evaluate_alert_rules(now=t0 + timedelta(seconds=10))
+        self.assertEqual(res1['enqueued'], 0)
+        state = AlertState.unscoped.get(rule=rule)
+        self.assertEqual(state.status, 'PENDING')
+
+        t1 = t0 + timedelta(minutes=2)
+        MetricLog.unscoped.filter(server=self.server).delete()
+        self._add_metric(t1, 30.0)
+        evaluate_alert_rules(now=t1 + timedelta(seconds=10))
+        state.refresh_from_db()
+        self.assertEqual(state.status, 'OK')
+        self.assertEqual(NotificationOutbox.unscoped.count(), 0)
+
+        t2 = t1 + timedelta(minutes=1)
+        MetricLog.unscoped.filter(server=self.server).delete()
+        self._add_metric(t2, 95.0)
+        evaluate_alert_rules(now=t2 + timedelta(seconds=5))
+        state.refresh_from_db()
+        self.assertEqual(state.status, 'PENDING')
+
+        t3 = t2 + timedelta(minutes=5, seconds=10)
+        self._add_metric(t3, 96.0)
+        res_fire = evaluate_alert_rules(now=t3 + timedelta(seconds=5))
+        self.assertEqual(res_fire['enqueued'], 1)
+        state.refresh_from_db()
+        self.assertEqual(state.status, 'FIRING')
+        self.assertEqual(NotificationOutbox.unscoped.filter(rule=rule, event_type='ALERT').count(), 1)
+        self.assertEqual(AlertState.unscoped.filter(rule__server=self.idle_server).count(), 0)
+
+    @patch('monitoring.tasks.deliver_notification_outbox.delay')
+    def test_multiple_rules_per_metric_and_per_rule_resolution_isolation(self, mock_deliver):
+        from monitoring.models import AlertState, NotificationOutbox
+        from monitoring.tasks import evaluate_alert_rules
+
+        warn_cpu = AlertRule.unscoped.create(
+            company=self.company,
+            server=self.server,
+            metric_type='cpu',
+            operator='gte',
+            severity='warning',
+            aggregation='max',
+            threshold_value=80.0,
+            hysteresis_margin=5.0,
+            duration_minutes=0,
+            notification_type='EMAIL',
+            notification_target='warn@example.com',
+        )
+        crit_cpu = AlertRule.unscoped.create(
+            company=self.company,
+            server=self.server,
+            metric_type='cpu',
+            operator='gt',
+            severity='critical',
+            aggregation='max',
+            threshold_value=95.0,
+            duration_minutes=0,
+            notification_type='EMAIL',
+            notification_target='crit@example.com',
+        )
+        ram_rule = AlertRule.unscoped.create(
+            company=self.company,
+            server=self.server,
+            metric_type='ram',
+            operator='gt',
+            severity='warning',
+            aggregation='avg',
+            threshold_value=90.0,
+            duration_minutes=0,
+            notification_type='EMAIL',
+            notification_target='ram@example.com',
+        )
+
+        t0 = timezone.now() - timedelta(minutes=5)
+        self._add_metric(t0, 85.0)
+        evaluate_alert_rules(now=t0 + timedelta(seconds=5))
+
+        self.assertEqual(AlertState.unscoped.get(rule=warn_cpu).status, 'FIRING')
+        self.assertEqual(AlertState.unscoped.get(rule=crit_cpu).status, 'OK')
+        self.assertEqual(AlertState.unscoped.get(rule=ram_rule).status, 'OK')
+
+        t1 = t0 + timedelta(minutes=1)
+        MetricLog.unscoped.filter(server=self.server).delete()
+        self._add_metric(t1, 78.0)
+        evaluate_alert_rules(now=t1 + timedelta(seconds=5))
+        self.assertEqual(AlertState.unscoped.get(rule=warn_cpu).status, 'FIRING')
+        self.assertEqual(AlertState.unscoped.get(rule=warn_cpu).consecutive_healthy_count, 0)
+
+        t2 = t1 + timedelta(minutes=1)
+        MetricLog.unscoped.filter(server=self.server).delete()
+        self._add_metric(t2, 70.0)
+        evaluate_alert_rules(now=t2 + timedelta(seconds=5))
+        evaluate_alert_rules(now=t2 + timedelta(seconds=35))
+
+        self.assertEqual(AlertState.unscoped.get(rule=warn_cpu).status, 'RESOLVED')
+        resolutions = list(
+            NotificationOutbox.unscoped.filter(event_type='RESOLUTION').values_list('rule_id', flat=True)
+        )
+        self.assertEqual(resolutions, [warn_cpu.id])
+
+    def test_flap_detection_and_lt_lte_operators_and_outbox_backoff(self):
+        from monitoring.models import AlertState, NotificationOutbox
+        from monitoring.state_machine import AlertStateMachine
+        from monitoring.tasks import deliver_notification_outbox
+
+        self.assertTrue(AlertStateMachine.evaluate_condition(5.0, 'lt', 10.0))
+        self.assertTrue(AlertStateMachine.evaluate_condition(10.0, 'lte', 10.0))
+        self.assertFalse(AlertStateMachine.evaluate_condition(11.0, 'lte', 10.0))
+        self.assertTrue(AlertStateMachine.is_recovered(15.0, 'lt', 10.0, hysteresis_margin=5.0))
+        self.assertFalse(AlertStateMachine.is_recovered(12.0, 'lt', 10.0, hysteresis_margin=5.0))
+
+        rule = AlertRule.unscoped.create(
+            company=self.company,
+            server=self.server,
+            metric_type='cpu',
+            operator='gt',
+            threshold_value=50.0,
+            duration_minutes=0,
+            notification_type='EMAIL',
+            notification_target='ops@example.com',
+        )
+        state = AlertState.unscoped.create(company=self.company, rule=rule)
+        now = timezone.now()
+        actions = []
+        for idx in range(5):
+            t = now + timedelta(seconds=idx * 60)
+            actions.append(AlertStateMachine.evaluate_rule_state(state, rule, 80.0, now=t))
+            actions.append(AlertStateMachine.evaluate_rule_state(state, rule, 10.0, now=t + timedelta(seconds=10)))
+            actions.append(AlertStateMachine.evaluate_rule_state(state, rule, 10.0, now=t + timedelta(seconds=20)))
+
+        state.refresh_from_db()
+        self.assertTrue(state.is_flapping)
+        self.assertLess(len([a for a in actions if a is not None]), 5)
+
+        outbox = NotificationOutbox.unscoped.create(
+            company=self.company,
+            server=self.server,
+            rule=rule,
+            event_type='ALERT',
+            payload={'value': 91.0, 'timestamp': now.isoformat()},
+            max_attempts=3,
+        )
+        with (
+            patch('monitoring.tasks.NotificationDispatcher.dispatch_alert', return_value=False),
+            patch('monitoring.tasks.deliver_notification_outbox.apply_async'),
+        ):
+            self.assertFalse(deliver_notification_outbox(str(outbox.id)))
+            outbox.refresh_from_db()
+            self.assertEqual(outbox.status, 'PENDING')
+            self.assertEqual(outbox.attempts, 1)
+            self.assertGreater(outbox.next_attempt_at, now)
+
+        with patch('monitoring.tasks.NotificationDispatcher.dispatch_alert', return_value=True):
+            self.assertTrue(deliver_notification_outbox(str(outbox.id)))
+            outbox.refresh_from_db()
+            self.assertEqual(outbox.status, 'DELIVERED')
+            self.assertIsNotNone(outbox.delivered_at)

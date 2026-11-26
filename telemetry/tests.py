@@ -52,8 +52,7 @@ class TelemetryIngestionTests(APITestCase):
     def _auth(self, token):
         self.client.credentials(HTTP_AUTHORIZATION=f'Token {token.key}')
 
-    @patch('monitoring.tasks.evaluate_metrics_batch.delay')
-    def test_ingest_and_worker_persists_with_server_derived_company_id(self, mock_evaluate):
+    def test_ingest_and_worker_persists_with_server_derived_company_id(self):
         self._auth(self.token_a)
         payload = {
             'server': str(self.server_a.id),
@@ -81,10 +80,8 @@ class TelemetryIngestionTests(APITestCase):
         self.assertEqual(log.company_id, self.company_a.id)
         self.assertEqual(log.cpu_usage, 45.5)
         self.assertEqual(log.ram_usage, 60.1)
-        mock_evaluate.assert_called_once()
 
-    @patch('monitoring.tasks.evaluate_metrics_batch.delay')
-    def test_ingest_ignores_forged_client_company(self, mock_evaluate):
+    def test_ingest_ignores_forged_client_company(self):
         self._auth(self.token_a)
         payload = {
             'server': str(self.server_a.id),
@@ -104,7 +101,6 @@ class TelemetryIngestionTests(APITestCase):
         log = MetricLog.unscoped.get(server=self.server_a)
         self.assertEqual(log.company_id, self.company_a.id)
         self.assertNotEqual(log.company_id, self.company_b.id)
-        mock_evaluate.assert_called_once()
 
     def test_ingest_rejects_cross_tenant_server_id(self):
         self._auth(self.token_a)
@@ -487,8 +483,7 @@ class RedisStreamsIngestionV2Tests(TransactionTestCase):
         self.redis_con.delete(TELEMETRY_STREAM_KEY)
         self.redis_con.delete(TELEMETRY_DLQ_STREAM_KEY)
 
-    @patch('monitoring.tasks.evaluate_metrics_batch.delay')
-    def test_xautoclaim_recovers_pending_entries_from_crashed_consumer(self, mock_evaluate):
+    def test_xautoclaim_recovers_pending_entries_from_crashed_consumer(self):
         from django.utils import timezone
 
         ts = timezone.now()
@@ -511,10 +506,8 @@ class RedisStreamsIngestionV2Tests(TransactionTestCase):
         self.assertEqual(stats['acked'], 1)
         self.assertEqual(get_stream_metrics()['pending_count'], 0)
         self.assertEqual(MetricLog.unscoped.filter(server=self.server).count(), 1)
-        mock_evaluate.assert_called_once()
 
-    @patch('monitoring.tasks.evaluate_metrics_batch.delay')
-    def test_poison_record_moves_to_dlq_after_max_deliveries(self, mock_evaluate):
+    def test_poison_record_moves_to_dlq_after_max_deliveries(self):
         from django.utils import timezone
 
         self.redis_con.xadd(TELEMETRY_STREAM_KEY, {'payload': '{invalid-json'})
@@ -538,10 +531,8 @@ class RedisStreamsIngestionV2Tests(TransactionTestCase):
         self.assertEqual(second['acked'], 1)
         self.assertEqual(self.redis_con.xlen(TELEMETRY_DLQ_STREAM_KEY), 1)
         self.assertEqual(get_stream_metrics()['pending_count'], 0)
-        mock_evaluate.assert_called_once()
 
-    @patch('monitoring.tasks.evaluate_metrics_batch.delay')
-    def test_deleted_server_fk_isolated_from_healthy_batch_records(self, mock_evaluate):
+    def test_deleted_server_fk_isolated_from_healthy_batch_records(self):
         import uuid
         from datetime import timedelta
         from django.utils import timezone
@@ -569,7 +560,6 @@ class RedisStreamsIngestionV2Tests(TransactionTestCase):
         self.assertEqual(stats['acked'], 2)
         self.assertEqual(MetricLog.unscoped.filter(server=self.server).count(), 1)
         self.assertEqual(self.redis_con.xlen(TELEMETRY_DLQ_STREAM_KEY), 1)
-        mock_evaluate.assert_called_once()
 
     def test_beat_poller_removed_and_compose_has_ingest_consumer(self):
         from django.conf import settings
@@ -799,7 +789,6 @@ class BroadcastAfterCommitTests(TransactionTestCase):
         by_group = {call.args[0]: call.args[1] for call in mock_layer.group_send.await_args_list}
         self.assertEqual(len(by_group[f'company_{self.company_a.id}']['samples']), 3)
         self.assertEqual(len(by_group[f'company_{self.company_b.id}']['samples']), 2)
-        mock_evaluate.assert_called_once()
 
     def test_failed_commit_emits_zero_broadcasts(self):
         from unittest.mock import AsyncMock
