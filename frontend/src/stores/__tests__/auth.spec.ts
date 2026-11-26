@@ -30,7 +30,6 @@ describe('auth and telemetry lifecycle', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     localStorage.clear()
-    delete axios.defaults.headers.common['Authorization']
     FakeWebSocket.instances = []
     vi.stubGlobal('WebSocket', FakeWebSocket)
     vi.useFakeTimers()
@@ -42,20 +41,50 @@ describe('auth and telemetry lifecycle', () => {
     vi.restoreAllMocks()
   })
 
-  it('restores Authorization header from stored token on initAuth', () => {
-    localStorage.setItem('sysroar_token', 'persisted-token-123')
+  it('hydrates session from HttpOnly cookie via /auth/me without using localStorage', async () => {
+    const getSpy = vi.spyOn(axios, 'get').mockImplementation(async (url: string) => {
+      if (url === '/api/accounts/auth/csrf/') {
+        return { data: { csrfToken: 'csrf-123' } } as never
+      }
+      if (url === '/api/accounts/auth/me/') {
+        return {
+          data: {
+            user: {
+              id: 'u-1',
+              username: 'alice',
+              email: 'alice@example.com',
+              company_id: 'c-1',
+              company_name: 'Acme',
+              is_superuser: false,
+            },
+          },
+        } as never
+      }
+      throw new Error(`Unexpected GET ${url}`)
+    })
+
     const auth = useAuthStore()
+    await auth.initAuth()
 
-    auth.initAuth()
-
+    expect(axios.defaults.withCredentials).toBe(true)
+    expect(axios.defaults.xsrfCookieName).toBe('csrftoken')
+    expect(axios.defaults.xsrfHeaderName).toBe('X-CSRFToken')
     expect(auth.isAuthenticated).toBe(true)
-    expect(axios.defaults.headers.common['Authorization']).toBe('Token persisted-token-123')
+    expect(auth.user?.username).toBe('alice')
+    expect(localStorage.getItem('sysroar_token')).toBeNull()
+    expect(getSpy).toHaveBeenCalledTimes(2)
   })
 
-  it('logs out, closes sockets, and triggers callback on 401 response', async () => {
-    localStorage.setItem('sysroar_token', 'expired-token')
+  it('clears session, closes sockets, and triggers callback on 401 response', async () => {
     const auth = useAuthStore()
-    auth.initAuth()
+    auth.user = {
+      id: 'u-1',
+      username: 'alice',
+      email: 'alice@example.com',
+      company_id: 'c-1',
+      company_name: 'Acme',
+      is_superuser: false,
+    }
 
     const telemetry = useTelemetryStore()
     const socket = new FakeWebSocket('ws://localhost:8000/ws/telemetry/srv-1/?ticket=t1')
@@ -72,16 +101,37 @@ describe('auth and telemetry lifecycle', () => {
 
     await expect(axios.get('/api/monitoring/servers/', { adapter })).rejects.toBeTruthy()
 
-    expect(auth.token).toBeNull()
-    expect(localStorage.getItem('sysroar_token')).toBeNull()
-    expect(axios.defaults.headers.common['Authorization']).toBeUndefined()
+    expect(auth.isAuthenticated).toBe(false)
+    expect(auth.user).toBeNull()
     expect(socket.closed).toBe(true)
     expect(Object.keys(telemetry.sockets)).toHaveLength(0)
     expect(onUnauthorized).toHaveBeenCalledTimes(1)
   })
 
+  it('logoutAll posts to logout-all endpoint and closes sockets', async () => {
+    const postSpy = vi.spyOn(axios, 'post').mockResolvedValue({ status: 204 } as never)
+    const auth = useAuthStore()
+    auth.user = {
+      id: 'u-1',
+      username: 'alice',
+      email: 'alice@example.com',
+      company_id: 'c-1',
+      company_name: 'Acme',
+      is_superuser: false,
+    }
+
+    const telemetry = useTelemetryStore()
+    const socket = new FakeWebSocket('ws://localhost:8000/ws/telemetry/srv-1/?ticket=t1')
+    telemetry.sockets['srv-1'] = socket as unknown as WebSocket
+
+    await auth.logoutAll()
+
+    expect(postSpy).toHaveBeenCalledWith('/api/accounts/auth/logout-all/')
+    expect(auth.isAuthenticated).toBe(false)
+    expect(socket.closed).toBe(true)
+  })
+
   it('cancels reconnect timers and closes sockets on disconnectAll', () => {
-    localStorage.setItem('sysroar_token', 'valid-token')
     const telemetry = useTelemetryStore()
     const subscribeSpy = vi.spyOn(telemetry, 'subscribeToServer').mockResolvedValue()
 

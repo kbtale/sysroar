@@ -11,9 +11,12 @@ User = get_user_model()
 
 
 @database_sync_to_async
-def get_user(user_id):
+def get_user(user_id, expected_epoch=None):
     try:
-        return User.objects.get(id=user_id, is_active=True)
+        user = User.objects.get(id=user_id, is_active=True)
+        if expected_epoch is not None and user.session_epoch != expected_epoch:
+            return AnonymousUser()
+        return user
     except (User.DoesNotExist, ValueError):
         return AnonymousUser()
 
@@ -28,9 +31,18 @@ class WebSocketTicketMiddleware:
         ticket = tickets[0] if tickets else None
 
         if ticket:
-            user_id = await sync_to_async(ticket_manager.consume_ticket)(ticket)
-            if user_id:
-                scope['user'] = await get_user(user_id)
+            payload = await sync_to_async(ticket_manager.consume_ticket)(ticket)
+            if payload:
+                if ':' in payload:
+                    user_id, raw_epoch = payload.rsplit(':', 1)
+                    try:
+                        expected_epoch = int(raw_epoch)
+                    except ValueError:
+                        expected_epoch = -1
+                else:
+                    user_id = payload
+                    expected_epoch = None
+                scope['user'] = await get_user(user_id, expected_epoch=expected_epoch)
             else:
                 scope['user'] = AnonymousUser()
         else:

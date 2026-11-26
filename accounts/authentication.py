@@ -79,21 +79,24 @@ class TenantSessionAuthentication(SessionAuthentication):
 class WebSocketTicketManager:
     def __init__(self):
         self.redis = redis_client
-        self.prefix = "ws:ticket:"
+        self.prefix = 'ws:ticket:'
         self.ttl = 60
 
-    def create_ticket(self, user_id: str) -> str:
+    def create_ticket(self, user_id: str, session_epoch: int | None = None) -> str:
         ticket = str(uuid.uuid4())
-        key = f"{self.prefix}{ticket}"
-        self.redis.setex(key, self.ttl, user_id)
+        key = f'{self.prefix}{ticket}'
+        value = f'{user_id}:{session_epoch}' if session_epoch is not None else str(user_id)
+        self.redis.setex(key, self.ttl, value)
         return ticket
 
     def consume_ticket(self, ticket: str):
-        key = f"{self.prefix}{ticket}"
-        user_id = self.redis.getdel(key)
-        if isinstance(user_id, bytes):
-            return user_id.decode('utf-8')
-        return user_id
+        key = f'{self.prefix}{ticket}'
+        raw = self.redis.getdel(key)
+        if isinstance(raw, bytes):
+            raw = raw.decode('utf-8')
+        if not raw:
+            return None
+        return raw
 
 
 ticket_manager = WebSocketTicketManager()
