@@ -1,7 +1,16 @@
+import hashlib
+import hmac
+import secrets
 import uuid
-from django.db import models
+from datetime import timedelta
+from django.conf import settings
+from django.db import models, transaction
 from django.utils import timezone
 from accounts.models import TenantModel
+
+
+def hash_credential(raw_value: str) -> str:
+    return hashlib.sha256(raw_value.encode('utf-8')).hexdigest()
 
 
 class Server(TenantModel):
@@ -177,3 +186,116 @@ class SystemEvent(models.Model):
 
     def __str__(self):
         return f"{self.timestamp.strftime('%Y-%m-%d %H:%M:%S')} - [{self.severity}] {self.event_type}"
+
+
+class EnrollmentToken(TenantModel):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=128)
+    prefix = models.CharField(max_length=16, unique=True, db_index=True)
+    token_hash = models.CharField(max_length=64, unique=True)
+    max_uses = models.PositiveIntegerField(default=1, null=True, blank=True)
+    uses_count = models.PositiveIntegerField(default=0)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='created_enrollment_tokens',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    @classmethod
+    def generate(cls, company, name: str, created_by=None, max_uses=1, expires_in_hours: int | None = 24):
+        prefix = f'sre_{secrets.token_hex(4)}'
+        secret_part = secrets.token_urlsafe(32)
+        plaintext = f'{prefix}.{secret_part}'
+        expires_at = timezone.now() + timedelta(hours=expires_in_hours) if expires_in_hours else None
+        token = cls.unscoped.create(
+            company=company,
+            name=name,
+            prefix=prefix,
+            token_hash=hash_credential(plaintext),
+            max_uses=max_uses,
+            expires_at=expires_at,
+            created_by=created_by,
+        )
+        return token, plaintext
+
+    def verify(self, plaintext: str, now=None) -> bool:
+        now = now or timezone.now()
+        if self.revoked_at is not None:
+            return False
+        if self.expires_at is not None and now >= self.expires_at:
+            return False
+        if self.max_uses is not None and self.uses_count >= self.max_uses:
+            return False
+        return hmac.compare_digest(hash_credential(plaintext), self.token_hash)
+
+    def revoke(self):
+        if self.revoked_at is None:
+            self.revoked_at = timezone.now()
+            self.save(update_fields=['revoked_at'])
+
+    def __str__(self):
+        return f'{self.name} ({self.prefix})'
+
+
+class AgentKey(TenantModel):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    server = models.ForeignKey(Server, on_delete=models.CASCADE, related_name='agent_keys')
+    prefix = models.CharField(max_length=16, unique=True, db_index=True)
+    key_hash = models.CharField(max_length=64, unique=True)
+    is_active = models.BooleanField(default=True, db_index=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='created_agent_keys',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    @classmethod
+    def generate(cls, server: Server, created_by=None):
+        prefix = f'srk_{secrets.token_hex(4)}'
+        secret_part = secrets.token_urlsafe(32)
+        plaintext = f'{prefix}.{secret_part}'
+        key = cls.unscoped.create(
+            company_id=server.company_id,
+            server=server,
+            prefix=prefix,
+            key_hash=hash_credential(plaintext),
+            is_active=True,
+            created_by=created_by,
+        )
+        return key, plaintext
+
+    @classmethod
+    def rotate(cls, server: Server, created_by=None):
+        with transaction.atomic():
+            cls.unscoped.filter(
+                server=server,
+                company_id=server.company_id,
+                is_active=True,
+            ).update(is_active=False, revoked_at=timezone.now())
+            return cls.generate(server=server, created_by=created_by)
+
+    def verify(self, plaintext: str) -> bool:
+        if not self.is_active or self.revoked_at is not None:
+            return False
+        if not self.server.is_active:
+            return False
+        return hmac.compare_digest(hash_credential(plaintext), self.key_hash)
+
+    def revoke(self):
+        if self.is_active or self.revoked_at is None:
+            self.is_active = False
+            self.revoked_at = timezone.now()
+            self.save(update_fields=['is_active', 'revoked_at'])
+
+    def __str__(self):
+        return f'AgentKey({self.prefix} -> {self.server_id})'

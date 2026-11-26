@@ -70,6 +70,14 @@ impl TransportClient {
         self
     }
 
+    fn auth_header(&self) -> String {
+        if self.config.api_token.starts_with("srk_") {
+            format!("AgentKey {}", self.config.api_token)
+        } else {
+            format!("Token {}", self.config.api_token)
+        }
+    }
+
     pub async fn send_batch_with_retry(
         &self,
         samples: &[MetricSample],
@@ -80,7 +88,7 @@ impl TransportClient {
         }
         let body = gzip_json(&BatchEnvelope { samples })?;
         let url = self.config.batch_ingest_url();
-        let auth_header = format!("Token {}", self.config.api_token);
+        let auth_header = self.auth_header();
 
         let mut last_status = 0u16;
         for attempt in 0..=max_retries {
@@ -122,7 +130,7 @@ impl TransportClient {
 
     pub async fn send_inventory(&self, inventory: &HostInventory) -> Result<(), TransportError> {
         let url = self.config.inventory_url();
-        let auth_header = format!("Token {}", self.config.api_token);
+        let auth_header = self.auth_header();
         let resp = self
             .client
             .post(&url)
@@ -139,7 +147,7 @@ impl TransportClient {
 
     pub async fn fetch_config(&self, etag: &mut Option<String>) -> Result<Option<RemoteConfig>, TransportError> {
         let url = self.config.config_url();
-        let auth_header = format!("Token {}", self.config.api_token);
+        let auth_header = self.auth_header();
         let mut req = self
             .client
             .get(&url)
@@ -302,5 +310,23 @@ mod tests {
             let delay = compute_jittered_backoff_ms(attempt, 100, 1000);
             assert!(delay <= 1000);
         }
+    }
+
+    #[tokio::test]
+    async fn agent_key_prefix_uses_agentkey_authorization_scheme() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/telemetry/ingest/batch/"))
+            .and(header("authorization", "AgentKey srk_12345678.secretvalue"))
+            .respond_with(ResponseTemplate::new(202))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let mut cfg = test_config(server.uri());
+        cfg.api_token = "srk_12345678.secretvalue".to_string();
+        let client = TransportClient::new(cfg).unwrap();
+        let res = client.send_batch_with_retry(&[dummy_sample()], 0).await;
+        assert!(res.is_ok());
     }
 }

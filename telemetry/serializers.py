@@ -34,7 +34,11 @@ class MetricLogSerializer(serializers.Serializer):
         request = self.context.get('request')
         user = getattr(request, 'user', None)
         user_company_id = getattr(user, 'company_id', None) if user and user.is_authenticated else None
+        agent_server_id = getattr(user, 'server_id', None) if getattr(user, 'is_agent', False) else None
         allowed_servers = self.context.get('allowed_servers')
+
+        if agent_server_id is not None and value != agent_server_id:
+            raise serializers.ValidationError('Agent key is not authorized for this server.')
 
         if allowed_servers is not None:
             server = allowed_servers.get(value)
@@ -124,6 +128,9 @@ class ServerInventorySerializer(serializers.Serializer):
         request = self.context.get('request')
         user = getattr(request, 'user', None)
         user_company_id = getattr(user, 'company_id', None) if user and user.is_authenticated else None
+        agent_server_id = getattr(user, 'server_id', None) if getattr(user, 'is_agent', False) else None
+        if agent_server_id is not None and value != agent_server_id:
+            raise serializers.ValidationError('Agent key is not authorized for this server.')
         server = Server.unscoped.filter(id=value).only('id', 'company_id').first()
         if server is None or user_company_id is None or server.company_id != user_company_id:
             raise serializers.ValidationError('Server does not exist or access denied.')
@@ -134,3 +141,42 @@ class ServerInventorySerializer(serializers.Serializer):
         attrs['server_id'] = self._validated_server.id
         attrs['company_id'] = self._validated_server.company_id
         return attrs
+
+
+class AgentEnrollmentSerializer(serializers.Serializer):
+    enrollment_token = serializers.CharField(max_length=128)
+    name = serializers.CharField(max_length=255)
+    hostname = serializers.CharField(max_length=255, required=False, allow_blank=True, allow_null=True)
+    os_info = serializers.CharField(max_length=255, required=False, allow_blank=True, allow_null=True)
+    kernel = serializers.CharField(max_length=255, required=False, allow_blank=True, allow_null=True)
+    cpu_model = serializers.CharField(max_length=255, required=False, allow_blank=True, allow_null=True)
+    cpu_cores = serializers.IntegerField(min_value=1, max_value=4096, required=False, allow_null=True)
+    total_ram_bytes = serializers.IntegerField(min_value=0, required=False, allow_null=True)
+    agent_version = serializers.CharField(max_length=64, required=False, allow_blank=True, allow_null=True)
+
+    def _clean(self, value):
+        if value is None:
+            return None
+        cleaned = _CONTROL_CHARS_RE.sub('', value).strip()
+        return cleaned or None
+
+    def validate_name(self, value):
+        cleaned = self._clean(value)
+        if not cleaned:
+            raise serializers.ValidationError('Server name is required.')
+        return cleaned
+
+    def validate_hostname(self, value):
+        return self._clean(value)
+
+    def validate_os_info(self, value):
+        return self._clean(value)
+
+    def validate_kernel(self, value):
+        return self._clean(value)
+
+    def validate_cpu_model(self, value):
+        return self._clean(value)
+
+    def validate_agent_version(self, value):
+        return self._clean(value)
