@@ -9,6 +9,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from monitoring.heartbeat import record_heartbeat, record_heartbeats_batch
+from monitoring.metrics import INGEST_SAMPLES_TOTAL
 from monitoring.models import Server
 from .ingestion import push_batch_to_stream, push_to_stream
 from .parsers import GzipJSONParser
@@ -70,6 +71,7 @@ class TelemetryIngestView(APIView):
                 now = timezone.now()
                 payload = _build_stream_payload(data, now)
                 push_to_stream(payload)
+                INGEST_SAMPLES_TOTAL.inc(1)
 
                 ip_address = data.get('ip_address') or _extract_remote_ip(request)
                 record_heartbeat(
@@ -155,6 +157,7 @@ class TelemetryBatchIngestView(APIView):
 
         try:
             push_batch_to_stream(payloads)
+            INGEST_SAMPLES_TOTAL.inc(len(payloads))
             record_heartbeats_batch([
                 {
                     'server_id': server_id,

@@ -10,6 +10,7 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django_redis import get_redis_connection
+from monitoring.metrics import INGEST_DLQ_TOTAL, INGEST_PERSISTED_TOTAL
 from .ingestion import (
     TELEMETRY_CONSUMER_GROUP,
     TELEMETRY_DLQ_STREAM_KEY,
@@ -252,6 +253,11 @@ class IngestConsumer:
             stream_key=self.stream_key,
             group_name=self.group_name,
         )
+
+        if persisted_logs:
+            INGEST_PERSISTED_TOTAL.inc(len(persisted_logs))
+        if dlq_count:
+            INGEST_DLQ_TOTAL.inc(dlq_count)
 
         return {
             'persisted': len(persisted_logs),

@@ -1,4 +1,5 @@
 import logging
+import time
 from datetime import timedelta
 from celery import shared_task
 from django.conf import settings
@@ -8,6 +9,7 @@ from django.db.models import Avg, Count, Max, Min
 from django.utils import timezone
 from telemetry.models import MetricLog
 from telemetry.notifications.dispatcher import NotificationDispatcher
+from .metrics import ALERT_EVAL_DURATION_SECONDS, NOTIFICATION_OUTBOX_FAILED_TOTAL
 from .models import AlertRule, AlertState, NotificationOutbox, Server, ServerAlertState, SystemEvent
 from .state_machine import AlertStateMachine
 
@@ -51,65 +53,69 @@ def _compute_backoff_seconds(attempts: int) -> int:
 
 @shared_task(name='monitoring.evaluate_alert_rules', ignore_result=True)
 def evaluate_alert_rules(now=None, eval_interval_seconds: int = 30):
-    now = now or timezone.now()
-    active_rules = list(
-        AlertRule.unscoped.filter(is_active=True, server__is_active=True)
-        .exclude(metric_type='no_data')
-        .select_related('server')
-    )
-    if not active_rules:
-        return {'evaluated': 0, 'enqueued': 0}
+    started_at = time.monotonic()
+    try:
+        now = now or timezone.now()
+        active_rules = list(
+            AlertRule.unscoped.filter(is_active=True, server__is_active=True)
+            .exclude(metric_type='no_data')
+            .select_related('server')
+        )
+        if not active_rules:
+            return {'evaluated': 0, 'enqueued': 0}
 
-    evaluated = 0
-    enqueued = 0
+        evaluated = 0
+        enqueued = 0
 
-    for rule in active_rules:
-        agg_value = _aggregate_rule_window(rule, now)
-        if agg_value is None:
-            continue
-        evaluated += 1
-        try:
-            with transaction.atomic():
-                state, _ = AlertState.unscoped.select_for_update().get_or_create(
-                    rule=rule,
-                    defaults={'company_id': rule.company_id},
-                )
-                action = AlertStateMachine.evaluate_rule_state(
-                    state,
-                    rule,
-                    float(agg_value),
-                    now=now,
-                    eval_interval_seconds=eval_interval_seconds,
-                )
-                if action in ('ALERT', 'RESOLUTION'):
-                    outbox = NotificationOutbox.unscoped.create(
-                        company_id=rule.company_id,
-                        server=rule.server,
+        for rule in active_rules:
+            agg_value = _aggregate_rule_window(rule, now)
+            if agg_value is None:
+                continue
+            evaluated += 1
+            try:
+                with transaction.atomic():
+                    state, _ = AlertState.unscoped.select_for_update().get_or_create(
                         rule=rule,
-                        event_type=action,
-                        payload={
-                            'value': round(float(agg_value), 2),
-                            'severity': rule.severity,
-                            'operator': rule.get_operator_display(),
-                            'threshold': rule.threshold_value,
-                            'timestamp': now.isoformat(),
-                        },
+                        defaults={'company_id': rule.company_id},
                     )
-                    enqueued += 1
-                    outbox_id = str(outbox.id)
-                    transaction.on_commit(lambda oid=outbox_id: deliver_notification_outbox.delay(oid))
-        except DatabaseError as exc:
-            logger.error(
-                f'POSTGRES_TRANSACTION_ROLLBACK | Failed evaluating rule {rule.id}: {exc}',
-                exc_info=True,
-            )
-            record_system_event.delay(
-                event_type='POSTGRES_TRANSACTION_ROLLBACK',
-                severity='CRITICAL',
-                context={'rule_id': str(rule.id), 'error': str(exc)},
-            )
+                    action = AlertStateMachine.evaluate_rule_state(
+                        state,
+                        rule,
+                        float(agg_value),
+                        now=now,
+                        eval_interval_seconds=eval_interval_seconds,
+                    )
+                    if action in ('ALERT', 'RESOLUTION'):
+                        outbox = NotificationOutbox.unscoped.create(
+                            company_id=rule.company_id,
+                            server=rule.server,
+                            rule=rule,
+                            event_type=action,
+                            payload={
+                                'value': round(float(agg_value), 2),
+                                'severity': rule.severity,
+                                'operator': rule.get_operator_display(),
+                                'threshold': rule.threshold_value,
+                                'timestamp': now.isoformat(),
+                            },
+                        )
+                        enqueued += 1
+                        outbox_id = str(outbox.id)
+                        transaction.on_commit(lambda oid=outbox_id: deliver_notification_outbox.delay(oid))
+            except DatabaseError as exc:
+                logger.error(
+                    f'POSTGRES_TRANSACTION_ROLLBACK | Failed evaluating rule {rule.id}: {exc}',
+                    exc_info=True,
+                )
+                record_system_event.delay(
+                    event_type='POSTGRES_TRANSACTION_ROLLBACK',
+                    severity='CRITICAL',
+                    context={'rule_id': str(rule.id), 'error': str(exc)},
+                )
 
-    return {'evaluated': evaluated, 'enqueued': enqueued}
+        return {'evaluated': evaluated, 'enqueued': enqueued}
+    finally:
+        ALERT_EVAL_DURATION_SECONDS.observe(time.monotonic() - started_at)
 
 
 @shared_task(name='monitoring.deliver_notification_outbox', ignore_result=True)
@@ -155,6 +161,7 @@ def deliver_notification_outbox(outbox_id: str):
             return True
 
         outbox.last_error = error_msg[:1000]
+        NOTIFICATION_OUTBOX_FAILED_TOTAL.inc(1)
         if outbox.attempts >= outbox.max_attempts:
             outbox.status = 'FAILED'
             outbox.save()

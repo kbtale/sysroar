@@ -268,3 +268,20 @@ LOGGING = build_logging_config(
     logstash_port=LOGSTASH_PORT,
     log_level=LOG_LEVEL,
 )
+
+METRICS_AUTH_TOKEN = env('METRICS_AUTH_TOKEN', default='')
+READY_MAX_STREAM_LAG = env.int('READY_MAX_STREAM_LAG', default=10000)
+SENTRY_DSN = env('SENTRY_DSN', default='')
+SENTRY_TRACES_SAMPLE_RATE = env.float('SENTRY_TRACES_SAMPLE_RATE', default=0.0)
+
+if SENTRY_DSN:
+    import sentry_sdk
+    from sentry_sdk.integrations.celery import CeleryIntegration
+    from sentry_sdk.integrations.django import DjangoIntegration
+
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        integrations=[DjangoIntegration(), CeleryIntegration()],
+        traces_sample_rate=SENTRY_TRACES_SAMPLE_RATE,
+        send_default_pii=False,
+    )
