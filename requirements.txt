@@ -13,3 +13,5 @@ channels-redis~=4.2.0
 django-cors-headers~=4.3.0
 django-redis~=5.4.0
 requests~=2.32.3
+prometheus-client~=0.21.0
+sentry-sdk[django,celery]~=2.19.0

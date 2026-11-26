@@ -489,3 +489,87 @@ class AlertEngineV2Tests(TestCase):
             outbox.refresh_from_db()
             self.assertEqual(outbox.status, 'DELIVERED')
             self.assertIsNotNone(outbox.delivered_at)
+
+
+class SelfObservabilityTests(TestCase):
+    def test_healthz_returns_ok_anonymously(self):
+        response = self.client.get('/healthz')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {'status': 'ok'})
+        self.assertEqual(response['Cache-Control'], 'no-store')
+
+    def test_readyz_returns_ready_when_dependencies_healthy(self):
+        response = self.client.get('/readyz')
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body['status'], 'ready')
+        self.assertEqual(
+            body['checks'],
+            {'database': True, 'redis': True, 'ingest_lag': True},
+        )
+
+    def test_readyz_returns_503_on_database_error_without_leaking_details(self):
+        with patch('monitoring.health.connection.cursor', side_effect=RuntimeError('secret-pg-password')):
+            response = self.client.get('/readyz')
+        self.assertEqual(response.status_code, 503)
+        self.assertNotIn('secret-pg-password', response.content.decode('utf-8'))
+        body = response.json()
+        self.assertEqual(body['status'], 'degraded')
+        self.assertFalse(body['checks']['database'])
+
+    def test_readyz_returns_503_on_redis_error(self):
+        with patch('monitoring.health.get_redis_connection', side_effect=RuntimeError('redis-down-host')):
+            response = self.client.get('/readyz')
+        self.assertEqual(response.status_code, 503)
+        self.assertNotIn('redis-down-host', response.content.decode('utf-8'))
+        body = response.json()
+        self.assertEqual(body['status'], 'degraded')
+        self.assertFalse(body['checks']['redis'])
+        self.assertFalse(body['checks']['ingest_lag'])
+
+    def test_readyz_returns_503_when_stream_lag_exceeds_threshold(self):
+        from django.test import override_settings
+
+        fake_metrics = {'stream_length': 500, 'dlq_length': 0, 'pending_count': 10, 'lag': 250}
+        with (
+            override_settings(READY_MAX_STREAM_LAG=100),
+            patch('monitoring.health.get_stream_metrics', return_value=fake_metrics),
+        ):
+            response = self.client.get('/readyz')
+        self.assertEqual(response.status_code, 503)
+        body = response.json()
+        self.assertEqual(body['status'], 'degraded')
+        self.assertTrue(body['checks']['database'])
+        self.assertTrue(body['checks']['redis'])
+        self.assertFalse(body['checks']['ingest_lag'])
+
+    def test_metrics_disabled_by_default_when_token_unset(self):
+        from django.test import override_settings
+
+        with override_settings(METRICS_AUTH_TOKEN=''):
+            response = self.client.get('/metrics')
+        self.assertEqual(response.status_code, 403)
+
+    def test_metrics_requires_valid_bearer_token_and_exposes_prometheus_series(self):
+        from django.test import override_settings
+        from monitoring.tasks import evaluate_alert_rules
+
+        evaluate_alert_rules()
+        with override_settings(METRICS_AUTH_TOKEN='prom-secret-token'):
+            no_auth = self.client.get('/metrics')
+            self.assertEqual(no_auth.status_code, 401)
+            self.assertEqual(no_auth['WWW-Authenticate'], 'Bearer')
+
+            wrong_auth = self.client.get('/metrics', HTTP_AUTHORIZATION='Bearer wrong-token')
+            self.assertEqual(wrong_auth.status_code, 401)
+
+            ok = self.client.get('/metrics', HTTP_AUTHORIZATION='Bearer prom-secret-token')
+            self.assertEqual(ok.status_code, 200)
+            body = ok.content.decode('utf-8')
+            self.assertIn('sysroar_ingest_samples_total', body)
+            self.assertIn('sysroar_ingest_persisted_total', body)
+            self.assertIn('sysroar_ingest_stream_lag', body)
+            self.assertIn('sysroar_ingest_dlq_length', body)
+            self.assertIn('sysroar_alert_eval_duration_seconds_count', body)
+            self.assertIn('sysroar_notification_outbox_pending', body)
+            self.assertIn('sysroar_notification_outbox_failed_total', body)
