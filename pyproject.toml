@@ -1,7 +1,7 @@
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings"
 python_files = ["tests.py", "tests_*.py", "test_*.py"]
-testpaths = ["accounts", "config", "monitoring", "telemetry"]
+testpaths = ["accounts", "config", "monitoring", "telemetry", "tests"]
 asyncio_default_fixture_loop_scope = "function"
 
 [tool.ruff]
@@ -19,5 +19,6 @@ ignore = ["E402"]
 
 [tool.ruff.lint.per-file-ignores]
 "**/tests*.py" = ["S101", "S105", "S106", "S603"]
+"**/test_*.py" = ["S101", "S105", "S106", "S603"]
 "agent/test_*.py" = ["S101", "S105", "S106"]
 "config/settings.py" = ["S105"]
