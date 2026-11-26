@@ -1,4 +1,6 @@
+import hashlib
 import ipaddress
+import json
 import logging
 import uuid
 from django.utils import timezone
@@ -10,7 +12,7 @@ from monitoring.heartbeat import record_heartbeat, record_heartbeats_batch
 from monitoring.models import Server
 from .ingestion import push_batch_to_stream, push_to_stream
 from .parsers import GzipJSONParser
-from .serializers import MetricBatchRequestSerializer, MetricLogSerializer
+from .serializers import MetricBatchRequestSerializer, MetricLogSerializer, ServerInventorySerializer
 from .throttling import ServerIngestRateThrottle
 
 logger = logging.getLogger(__name__)
@@ -175,6 +177,48 @@ class TelemetryBatchIngestView(APIView):
             )
 
 
+class TelemetryInventoryView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        serializer = ServerInventorySerializer(data=request.data, context={'request': request})
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        data = serializer.validated_data
+        now = timezone.now()
+        update_fields = {'last_ping': now}
+        for field in (
+            'hostname',
+            'os_info',
+            'kernel',
+            'cpu_model',
+            'cpu_cores',
+            'total_ram_bytes',
+            'agent_version',
+        ):
+            if data.get(field) is not None:
+                update_fields[field] = data[field]
+
+        ip_address = data.get('ip_address') or _extract_remote_ip(request)
+        if ip_address:
+            update_fields['ip_address'] = ip_address
+
+        Server.unscoped.filter(
+            id=data['server_id'],
+            company_id=data['company_id'],
+        ).update(**update_fields)
+
+        record_heartbeat(
+            server_id=data['server_id'],
+            company_id=data['company_id'],
+            seen_at=now,
+            ip_address=ip_address,
+            os_info=data.get('os_info'),
+        )
+        return Response({'status': 'updated'}, status=status.HTTP_200_OK)
+
+
 class TelemetryConfigView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -195,6 +239,14 @@ class TelemetryConfigView(APIView):
                 'telemetry_cadence': server.telemetry_cadence,
                 'log_level': server.log_level,
             }
-            return Response(config, status=status.HTTP_200_OK)
+            digest = hashlib.sha256(json.dumps(config, sort_keys=True).encode('utf-8')).hexdigest()[:16]
+            etag = f'"{digest}"'
+            if request.headers.get('If-None-Match') == etag:
+                response = Response(status=status.HTTP_304_NOT_MODIFIED)
+                response['ETag'] = etag
+                return response
+            response = Response(config, status=status.HTTP_200_OK)
+            response['ETag'] = etag
+            return response
         except Server.DoesNotExist:
             return Response({'error': 'Server not found'}, status=status.HTTP_404_NOT_FOUND)
