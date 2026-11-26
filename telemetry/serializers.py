@@ -1,16 +1,32 @@
+import json
 import re
+from datetime import timedelta
+from django.conf import settings
+from django.utils import timezone
 from rest_framework import serializers
 from monitoring.models import Server
 
 _CONTROL_CHARS_RE = re.compile(r'[\x00-\x1f\x7f]')
+MAX_FUTURE_DRIFT = timedelta(minutes=5)
+MAX_DETAILS_BYTES = 16384
 
 
 class MetricLogSerializer(serializers.Serializer):
     server = serializers.UUIDField()
+    sample_id = serializers.UUIDField(required=False, allow_null=True)
     timestamp = serializers.DateTimeField(required=False, allow_null=True)
     cpu_usage = serializers.FloatField(min_value=0.0, max_value=100.0)
     ram_usage = serializers.FloatField(min_value=0.0, max_value=100.0)
     disk_io = serializers.FloatField(min_value=0.0, required=False, allow_null=True)
+    swap_usage = serializers.FloatField(min_value=0.0, max_value=100.0, required=False, allow_null=True)
+    disk_usage = serializers.FloatField(min_value=0.0, max_value=100.0, required=False, allow_null=True)
+    disk_read_bps = serializers.FloatField(min_value=0.0, required=False, allow_null=True)
+    disk_write_bps = serializers.FloatField(min_value=0.0, required=False, allow_null=True)
+    net_rx_bps = serializers.FloatField(min_value=0.0, required=False, allow_null=True)
+    net_tx_bps = serializers.FloatField(min_value=0.0, required=False, allow_null=True)
+    load_1m = serializers.FloatField(min_value=0.0, required=False, allow_null=True)
+    uptime_seconds = serializers.IntegerField(min_value=0, required=False, allow_null=True)
+    details = serializers.DictField(required=False, default=dict)
     ip_address = serializers.IPAddressField(required=False, allow_null=True)
     os_info = serializers.CharField(max_length=255, required=False, allow_blank=True, allow_null=True)
 
@@ -18,10 +34,25 @@ class MetricLogSerializer(serializers.Serializer):
         request = self.context.get('request')
         user = getattr(request, 'user', None)
         user_company_id = getattr(user, 'company_id', None) if user and user.is_authenticated else None
-        server = Server.unscoped.filter(id=value).only('id', 'company_id').first()
+        allowed_servers = self.context.get('allowed_servers')
+
+        if allowed_servers is not None:
+            server = allowed_servers.get(value)
+        else:
+            server = Server.unscoped.filter(id=value).only('id', 'company_id').first()
+
         if server is None or user_company_id is None or server.company_id != user_company_id:
             raise serializers.ValidationError('Server does not exist or access denied.')
         self._validated_server = server
+        return value
+
+    def validate_timestamp(self, value):
+        if value is None:
+            return None
+        if timezone.is_naive(value):
+            value = timezone.make_aware(value, timezone.utc)
+        if value > timezone.now() + MAX_FUTURE_DRIFT:
+            raise serializers.ValidationError('Timestamp cannot be more than 5 minutes in the future.')
         return value
 
     def validate_os_info(self, value):
@@ -30,7 +61,28 @@ class MetricLogSerializer(serializers.Serializer):
         cleaned = _CONTROL_CHARS_RE.sub('', value).strip()
         return cleaned or None
 
+    def validate_details(self, value):
+        if not value:
+            return {}
+        encoded = json.dumps(value).encode('utf-8')
+        if len(encoded) > MAX_DETAILS_BYTES:
+            raise serializers.ValidationError('Details payload exceeds maximum allowed size.')
+        return value
+
     def validate(self, attrs):
         attrs['server_id'] = self._validated_server.id
         attrs['company_id'] = self._validated_server.company_id
         return attrs
+
+
+class MetricBatchRequestSerializer(serializers.Serializer):
+    samples = serializers.ListField(
+        child=serializers.DictField(),
+        min_length=1,
+    )
+
+    def validate_samples(self, value):
+        max_batch = getattr(settings, 'TELEMETRY_MAX_BATCH_SIZE', 500)
+        if len(value) > max_batch:
+            raise serializers.ValidationError(f'Batch cannot exceed {max_batch} samples.')
+        return value

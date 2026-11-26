@@ -579,3 +579,167 @@ class RedisStreamsIngestionV2Tests(TransactionTestCase):
         compose = (settings.BASE_DIR / 'docker-compose.yml').read_text(encoding='utf-8')
         self.assertIn('ingest_consumer:', compose)
         self.assertIn('run_ingest_consumer', compose)
+
+
+class BatchAndIdempotencyTests(APITestCase):
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+        self.company_a = Company.objects.create(name='Batch Co A')
+        self.company_b = Company.objects.create(name='Batch Co B')
+        self.user_a = User.objects.create_user(username='batch_user_a', password='password123', company=self.company_a)
+        self.token_a = Token.objects.create(user=self.user_a)
+        self.server_a = Server.unscoped.create(name='batch-a', company=self.company_a)
+        self.server_b = Server.unscoped.create(name='batch-b', company=self.company_b)
+        self.batch_url = reverse('telemetry-ingest-batch')
+        self.ingest_url = reverse('telemetry-ingest')
+        self.client.credentials(HTTP_AUTHORIZATION=f'Token {self.token_a.key}')
+        self.redis_con = get_redis_connection('default')
+        self.redis_con.delete(TELEMETRY_STREAM_KEY)
+        self.redis_con.delete(TELEMETRY_DLQ_STREAM_KEY)
+
+    def tearDown(self):
+        from django.core.cache import cache
+
+        cache.clear()
+        self.redis_con.delete(TELEMETRY_STREAM_KEY)
+        self.redis_con.delete(TELEMETRY_DLQ_STREAM_KEY)
+
+    @patch('monitoring.tasks.evaluate_metrics_batch.delay')
+    def test_gzip_batch_ingest_stores_received_at_and_deduplicates_replays(self, mock_evaluate):
+        import gzip
+        import uuid
+        from datetime import timedelta
+        from django.utils import timezone
+
+        t1 = (timezone.now() - timedelta(seconds=30)).replace(microsecond=0)
+        t2 = (timezone.now() - timedelta(seconds=10)).replace(microsecond=0)
+        body = {
+            'samples': [
+                {
+                    'server': str(self.server_a.id),
+                    'sample_id': str(uuid.uuid4()),
+                    'timestamp': t1.isoformat(),
+                    'cpu_usage': 25.0,
+                    'ram_usage': 40.0,
+                    'load_1m': 0.75,
+                    'disk_usage': 52.0,
+                },
+                {
+                    'server': str(self.server_a.id),
+                    'sample_id': str(uuid.uuid4()),
+                    'timestamp': t1.isoformat(),
+                    'cpu_usage': 99.0,
+                    'ram_usage': 99.0,
+                },
+                {
+                    'server': str(self.server_a.id),
+                    'sample_id': str(uuid.uuid4()),
+                    'timestamp': t2.isoformat(),
+                    'cpu_usage': 35.0,
+                    'ram_usage': 45.0,
+                    'net_rx_bps': 1024.0,
+                    'net_tx_bps': 512.0,
+                },
+            ]
+        }
+        compressed = gzip.compress(json.dumps(body).encode('utf-8'))
+
+        resp = self.client.post(
+            self.batch_url,
+            data=compressed,
+            content_type='application/json',
+            HTTP_CONTENT_ENCODING='gzip',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED)
+        self.assertEqual(resp.data['accepted'], 3)
+
+        consumer = IngestConsumer(consumer_name='batch-test', block_ms=50)
+        consumer.run_once(reclaim=False)
+        self.assertEqual(MetricLog.unscoped.filter(server=self.server_a).count(), 2)
+        first_log = MetricLog.unscoped.get(server=self.server_a, timestamp=t1)
+        self.assertIsNotNone(first_log.received_at)
+        self.assertEqual(first_log.load_1m, 0.75)
+
+        replay = self.client.post(
+            self.batch_url,
+            data=compressed,
+            content_type='application/json',
+            HTTP_CONTENT_ENCODING='gzip',
+        )
+        self.assertEqual(replay.status_code, status.HTTP_202_ACCEPTED)
+        consumer.run_once(reclaim=False)
+        self.assertEqual(MetricLog.unscoped.filter(server=self.server_a).count(), 2)
+
+    def test_gzip_bomb_rejected_with_413(self):
+        import gzip
+        from django.test import override_settings
+
+        bomb_bytes = b'{"samples":[' + (b' ' * (128 * 1024)) + b']}'
+        compressed = gzip.compress(bomb_bytes)
+        with override_settings(TELEMETRY_MAX_DECOMPRESSED_BYTES=4096):
+            resp = self.client.post(
+                self.batch_url,
+                data=compressed,
+                content_type='application/json',
+                HTTP_CONTENT_ENCODING='gzip',
+            )
+        self.assertEqual(resp.status_code, status.HTTP_413_REQUEST_ENTITY_TOO_LARGE)
+        self.assertEqual(self.redis_con.xlen(TELEMETRY_STREAM_KEY), 0)
+
+    def test_future_timestamps_beyond_5_minutes_rejected(self):
+        from datetime import timedelta
+        from django.utils import timezone
+
+        too_far = (timezone.now() + timedelta(minutes=6)).isoformat()
+        single_resp = self.client.post(
+            self.ingest_url,
+            {'server': str(self.server_a.id), 'timestamp': too_far, 'cpu_usage': 10.0, 'ram_usage': 20.0},
+            format='json',
+        )
+        self.assertEqual(single_resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('timestamp', single_resp.data)
+
+        batch_resp = self.client.post(
+            self.batch_url,
+            {
+                'samples': [
+                    {'server': str(self.server_a.id), 'timestamp': too_far, 'cpu_usage': 10.0, 'ram_usage': 20.0}
+                ]
+            },
+            format='json',
+        )
+        self.assertEqual(batch_resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(self.redis_con.xlen(TELEMETRY_STREAM_KEY), 0)
+
+    def test_mixed_cross_tenant_batch_and_oversize_batch_rejected_atomically(self):
+        from django.test import override_settings
+
+        mixed = self.client.post(
+            self.batch_url,
+            {
+                'samples': [
+                    {'server': str(self.server_a.id), 'cpu_usage': 10.0, 'ram_usage': 20.0},
+                    {'server': str(self.server_b.id), 'cpu_usage': 10.0, 'ram_usage': 20.0},
+                ]
+            },
+            format='json',
+        )
+        self.assertEqual(mixed.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(self.redis_con.xlen(TELEMETRY_STREAM_KEY), 0)
+
+        with override_settings(TELEMETRY_MAX_BATCH_SIZE=2):
+            oversize = self.client.post(
+                self.batch_url,
+                {
+                    'samples': [
+                        {'server': str(self.server_a.id), 'cpu_usage': 10.0, 'ram_usage': 20.0},
+                        {'server': str(self.server_a.id), 'cpu_usage': 11.0, 'ram_usage': 21.0},
+                        {'server': str(self.server_a.id), 'cpu_usage': 12.0, 'ram_usage': 22.0},
+                    ]
+                },
+                format='json',
+            )
+        self.assertEqual(oversize.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(self.redis_con.xlen(TELEMETRY_STREAM_KEY), 0)
