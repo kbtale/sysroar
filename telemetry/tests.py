@@ -743,3 +743,154 @@ class BatchAndIdempotencyTests(APITestCase):
             )
         self.assertEqual(oversize.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(self.redis_con.xlen(TELEMETRY_STREAM_KEY), 0)
+
+
+class BroadcastAfterCommitTests(TransactionTestCase):
+    def setUp(self):
+        self.company_a = Company.objects.create(name='Bcast Co A')
+        self.company_b = Company.objects.create(name='Bcast Co B')
+        self.user_a = User.objects.create_user(username='bcast_a', password='password123', company=self.company_a)
+        self.user_b = User.objects.create_user(username='bcast_b', password='password123', company=self.company_b)
+        self.server_a1 = Server.unscoped.create(name='bc-a1', company=self.company_a)
+        self.server_a2 = Server.unscoped.create(name='bc-a2', company=self.company_a)
+        self.server_b1 = Server.unscoped.create(name='bc-b1', company=self.company_b)
+        self.redis_con = get_redis_connection('default')
+        self.redis_con.delete(TELEMETRY_STREAM_KEY)
+        self.redis_con.delete(TELEMETRY_DLQ_STREAM_KEY)
+
+    def tearDown(self):
+        from django.db import connections
+
+        connections.close_all()
+        self.redis_con.delete(TELEMETRY_STREAM_KEY)
+        self.redis_con.delete(TELEMETRY_DLQ_STREAM_KEY)
+
+    @patch('monitoring.tasks.evaluate_metrics_batch.delay')
+    def test_one_group_send_per_company_per_batch_after_commit(self, mock_evaluate):
+        from datetime import timedelta
+        from unittest.mock import AsyncMock
+        from django.utils import timezone
+
+        now = timezone.now()
+        samples = [
+            (self.server_a1, self.company_a, now, 10.0),
+            (self.server_a1, self.company_a, now + timedelta(seconds=1), 15.0),
+            (self.server_a2, self.company_a, now, 20.0),
+            (self.server_b1, self.company_b, now, 30.0),
+            (self.server_b1, self.company_b, now + timedelta(seconds=1), 35.0),
+        ]
+        for srv, comp, ts, cpu in samples:
+            push_to_stream({
+                'server_id': str(srv.id),
+                'company_id': str(comp.id),
+                'timestamp': ts.isoformat(),
+                'cpu_usage': cpu,
+                'ram_usage': 40.0,
+            })
+
+        mock_layer = AsyncMock()
+        with patch('telemetry.consumer.get_channel_layer', return_value=mock_layer):
+            consumer = IngestConsumer(consumer_name='bcast-worker', block_ms=50)
+            stats = consumer.run_once(reclaim=False)
+
+        self.assertEqual(stats['persisted'], 5)
+        self.assertEqual(mock_layer.group_send.await_count, 2)
+
+        by_group = {call.args[0]: call.args[1] for call in mock_layer.group_send.await_args_list}
+        self.assertEqual(len(by_group[f'company_{self.company_a.id}']['samples']), 3)
+        self.assertEqual(len(by_group[f'company_{self.company_b.id}']['samples']), 2)
+        mock_evaluate.assert_called_once()
+
+    def test_failed_commit_emits_zero_broadcasts(self):
+        from unittest.mock import AsyncMock
+        from django.db import OperationalError
+        from django.utils import timezone
+
+        push_to_stream({
+            'server_id': str(self.server_a1.id),
+            'company_id': str(self.company_a.id),
+            'timestamp': timezone.now().isoformat(),
+            'cpu_usage': 50.0,
+            'ram_usage': 50.0,
+        })
+
+        mock_layer = AsyncMock()
+        with (
+            patch('telemetry.consumer.get_channel_layer', return_value=mock_layer),
+            patch('telemetry.consumer.MetricLog.unscoped.bulk_create', side_effect=OperationalError('db down')),
+        ):
+            consumer = IngestConsumer(consumer_name='fail-worker', block_ms=50)
+            with self.assertRaises(OperationalError):
+                consumer.run_once(reclaim=False)
+
+        self.assertEqual(mock_layer.group_send.await_count, 0)
+
+    @patch('monitoring.tasks.evaluate_metrics_batch.delay')
+    async def test_multiplexed_company_ws_and_server_ws_enforce_tenant_isolation(self, mock_evaluate):
+        from asgiref.sync import sync_to_async
+        from channels.testing import WebsocketCommunicator
+        from django.utils import timezone
+        from accounts.authentication import ticket_manager
+        from config.asgi import application
+
+        ticket_a_company = await sync_to_async(ticket_manager.create_ticket)(str(self.user_a.id))
+        ticket_a_server = await sync_to_async(ticket_manager.create_ticket)(str(self.user_a.id))
+        ticket_b_company = await sync_to_async(ticket_manager.create_ticket)(str(self.user_b.id))
+
+        ws_a = WebsocketCommunicator(
+            application,
+            f'/ws/telemetry/?ticket={ticket_a_company}',
+            headers=[(b'origin', b'http://localhost:5173')],
+        )
+        ws_a_srv = WebsocketCommunicator(
+            application,
+            f'/ws/telemetry/{self.server_a1.id}/?ticket={ticket_a_server}',
+            headers=[(b'origin', b'http://localhost:5173')],
+        )
+        ws_b = WebsocketCommunicator(
+            application,
+            f'/ws/telemetry/?ticket={ticket_b_company}',
+            headers=[(b'origin', b'http://localhost:5173')],
+        )
+
+        try:
+            self.assertTrue((await ws_a.connect(timeout=10))[0])
+            self.assertTrue((await ws_a_srv.connect(timeout=10))[0])
+            self.assertTrue((await ws_b.connect(timeout=10))[0])
+
+            now = timezone.now()
+            await sync_to_async(push_to_stream)({
+                'server_id': str(self.server_a1.id),
+                'company_id': str(self.company_a.id),
+                'timestamp': now.isoformat(),
+                'cpu_usage': 42.0,
+                'ram_usage': 50.0,
+            })
+            await sync_to_async(push_to_stream)({
+                'server_id': str(self.server_b1.id),
+                'company_id': str(self.company_b.id),
+                'timestamp': now.isoformat(),
+                'cpu_usage': 88.0,
+                'ram_usage': 60.0,
+            })
+
+            consumer = IngestConsumer(consumer_name='ws-bcast-worker', block_ms=50)
+            await sync_to_async(consumer.run_once)(reclaim=False)
+
+            msg_a = await ws_a.receive_json_from(timeout=5)
+            self.assertEqual(msg_a['type'], 'telemetry_batch')
+            self.assertEqual([s['server_id'] for s in msg_a['samples']], [str(self.server_a1.id)])
+            self.assertTrue(await ws_a.receive_nothing(timeout=0.3))
+
+            msg_a_srv = await ws_a_srv.receive_json_from(timeout=5)
+            self.assertEqual(msg_a_srv['server_id'], str(self.server_a1.id))
+            self.assertEqual(msg_a_srv['cpu_usage'], 42.0)
+
+            msg_b = await ws_b.receive_json_from(timeout=5)
+            self.assertEqual(msg_b['type'], 'telemetry_batch')
+            self.assertEqual([s['server_id'] for s in msg_b['samples']], [str(self.server_b1.id)])
+            self.assertTrue(await ws_b.receive_nothing(timeout=0.3))
+        finally:
+            await ws_a.disconnect()
+            await ws_a_srv.disconnect()
+            await ws_b.disconnect()
