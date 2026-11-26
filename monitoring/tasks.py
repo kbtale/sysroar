@@ -216,3 +216,17 @@ def purge_old_system_events():
     cutoff_date = timezone.now() - timedelta(days=retention_days)
     deleted_count, _ = SystemEvent.objects.filter(timestamp__lt=cutoff_date).delete()
     logger.info(f"Purged {deleted_count} outdated SystemEvent records.")
+
+
+@shared_task(name='monitoring.flush_heartbeats', ignore_result=True)
+def flush_heartbeats():
+    from monitoring.heartbeat import flush_heartbeats_to_db
+
+    return flush_heartbeats_to_db()
+
+
+@shared_task(name='monitoring.check_heartbeats', ignore_result=True)
+def check_heartbeats():
+    from monitoring.heartbeat import check_server_heartbeats
+
+    return check_server_heartbeats()

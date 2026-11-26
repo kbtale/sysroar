@@ -179,6 +179,14 @@ CELERY_TIMEZONE = TIME_ZONE
 CELERY_TASK_IGNORE_RESULT = True
 
 CELERY_BEAT_SCHEDULE = {
+    'flush-heartbeats-every-30s': {
+        'task': 'monitoring.flush_heartbeats',
+        'schedule': 30.0,
+    },
+    'check-heartbeats-every-30s': {
+        'task': 'monitoring.check_heartbeats',
+        'schedule': 30.0,
+    },
     'check-system-health-15m': {
         'task': 'monitoring.check_system_health',
         'schedule': crontab(minute='*/15'),

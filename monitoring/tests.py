@@ -156,9 +156,15 @@ class ServerApiAndHeartbeatTests(TestCase):
 
         self.redis_con = get_redis_connection('default')
         self.redis_con.delete(TELEMETRY_STREAM_KEY)
+        from monitoring.heartbeat import HEARTBEAT_DIRTY_KEY, HEARTBEAT_LAST_SEEN_KEY, HEARTBEAT_OFFLINE_KEY
+
+        self.redis_con.delete(HEARTBEAT_LAST_SEEN_KEY, HEARTBEAT_DIRTY_KEY, HEARTBEAT_OFFLINE_KEY)
 
     def tearDown(self):
-        get_redis_connection('default').delete(TELEMETRY_STREAM_KEY)
+        from monitoring.heartbeat import HEARTBEAT_DIRTY_KEY, HEARTBEAT_LAST_SEEN_KEY, HEARTBEAT_OFFLINE_KEY
+
+        con = get_redis_connection('default')
+        con.delete(TELEMETRY_STREAM_KEY, HEARTBEAT_LAST_SEEN_KEY, HEARTBEAT_DIRTY_KEY, HEARTBEAT_OFFLINE_KEY)
 
     def test_list_servers_returns_real_fields_computed_status_and_enforces_tenancy(self):
         response = self.client.get('/api/monitoring/servers/')
@@ -187,6 +193,8 @@ class ServerApiAndHeartbeatTests(TestCase):
         self.assertEqual(cross_resp.status_code, 404)
 
     def test_ingest_updates_server_last_seen_ip_and_os_info(self):
+        from monitoring.heartbeat import flush_heartbeats_to_db
+
         ingest_url = reverse('telemetry-ingest')
         response = self.client.post(
             ingest_url,
@@ -201,18 +209,25 @@ class ServerApiAndHeartbeatTests(TestCase):
         )
         self.assertEqual(response.status_code, 202)
 
-        self.unknown_server.refresh_from_db()
-        self.assertIsNotNone(self.unknown_server.last_ping)
-        self.assertEqual(self.unknown_server.ip_address, '10.0.0.42')
-        self.assertEqual(self.unknown_server.os_info, 'Ubuntu 24.04 LTS')
-
         detail_resp = self.client.get(f'/api/monitoring/servers/{self.unknown_server.id}/')
         self.assertEqual(detail_resp.status_code, 200)
         self.assertEqual(detail_resp.data['status'], 'online')
         self.assertEqual(detail_resp.data['ip_address'], '10.0.0.42')
         self.assertEqual(detail_resp.data['os_info'], 'Ubuntu 24.04 LTS')
 
+        self.unknown_server.refresh_from_db()
+        self.assertIsNone(self.unknown_server.last_ping)
+
+        flushed = flush_heartbeats_to_db()
+        self.assertEqual(flushed, 1)
+        self.unknown_server.refresh_from_db()
+        self.assertIsNotNone(self.unknown_server.last_ping)
+        self.assertEqual(self.unknown_server.ip_address, '10.0.0.42')
+        self.assertEqual(self.unknown_server.os_info, 'Ubuntu 24.04 LTS')
+
     def test_ingest_falls_back_to_remote_addr_when_ip_omitted(self):
+        from monitoring.heartbeat import flush_heartbeats_to_db
+
         ingest_url = reverse('telemetry-ingest')
         response = self.client.post(
             ingest_url,
@@ -225,6 +240,59 @@ class ServerApiAndHeartbeatTests(TestCase):
             REMOTE_ADDR='192.0.2.15',
         )
         self.assertEqual(response.status_code, 202)
+        flush_heartbeats_to_db()
         self.unknown_server.refresh_from_db()
         self.assertIsNotNone(self.unknown_server.last_ping)
         self.assertEqual(self.unknown_server.ip_address, '192.0.2.15')
+
+
+class HeartbeatAndNoDataAlertTests(TestCase):
+    def setUp(self):
+        from monitoring.heartbeat import HEARTBEAT_DIRTY_KEY, HEARTBEAT_LAST_SEEN_KEY, HEARTBEAT_OFFLINE_KEY
+
+        self.redis_con = get_redis_connection('default')
+        self.redis_con.delete(HEARTBEAT_LAST_SEEN_KEY, HEARTBEAT_DIRTY_KEY, HEARTBEAT_OFFLINE_KEY)
+        self.company = Company.objects.create(name='HB Corp')
+        self.fast_server = Server.unscoped.create(
+            name='hb-fast',
+            company=self.company,
+            telemetry_cadence=10,
+            last_ping=timezone.now() - timedelta(seconds=95),
+        )
+        self.slow_server = Server.unscoped.create(
+            name='hb-slow',
+            company=self.company,
+            telemetry_cadence=60,
+            last_ping=timezone.now() - timedelta(seconds=120),
+        )
+
+    def tearDown(self):
+        from monitoring.heartbeat import HEARTBEAT_DIRTY_KEY, HEARTBEAT_LAST_SEEN_KEY, HEARTBEAT_OFFLINE_KEY
+
+        self.redis_con.delete(HEARTBEAT_LAST_SEEN_KEY, HEARTBEAT_DIRTY_KEY, HEARTBEAT_OFFLINE_KEY)
+
+    def test_offline_threshold_formula_and_no_data_lifecycle(self):
+        from monitoring.heartbeat import check_server_heartbeats, compute_offline_threshold_seconds, record_heartbeat
+
+        self.assertEqual(compute_offline_threshold_seconds(10), 90)
+        self.assertEqual(compute_offline_threshold_seconds(30), 90)
+        self.assertEqual(compute_offline_threshold_seconds(60), 180)
+
+        first = check_server_heartbeats()
+        self.assertEqual(first['newly_offline'], 1)
+        self.assertEqual(first['recovered'], 0)
+        self.assertEqual(SystemEvent.objects.filter(event_type='NO_DATA').count(), 1)
+        self.assertEqual(
+            SystemEvent.objects.get(event_type='NO_DATA').context['server_id'],
+            str(self.fast_server.id),
+        )
+
+        repeat = check_server_heartbeats()
+        self.assertEqual(repeat['newly_offline'], 0)
+        self.assertEqual(SystemEvent.objects.filter(event_type='NO_DATA').count(), 1)
+
+        record_heartbeat(self.fast_server.id, self.company.id, seen_at=timezone.now())
+        recovered = check_server_heartbeats()
+        self.assertEqual(recovered['flushed'], 1)
+        self.assertEqual(recovered['recovered'], 1)
+        self.assertEqual(SystemEvent.objects.filter(event_type='NO_DATA_RESOLVED').count(), 1)
