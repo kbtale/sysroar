@@ -3,18 +3,35 @@ import ipaddress
 import json
 import logging
 import uuid
+from django.db import transaction
 from django.utils import timezone
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from accounts.authentication import (
+    AgentKeyAuthentication,
+    TenantSessionAuthentication,
+    TenantTokenAuthentication,
+)
 from monitoring.heartbeat import record_heartbeat, record_heartbeats_batch
 from monitoring.metrics import INGEST_SAMPLES_TOTAL
-from monitoring.models import Server
+from monitoring.models import AgentKey, EnrollmentToken, Server
 from .ingestion import push_batch_to_stream, push_to_stream
 from .parsers import GzipJSONParser
-from .serializers import MetricBatchRequestSerializer, MetricLogSerializer, ServerInventorySerializer
+from .serializers import (
+    AgentEnrollmentSerializer,
+    MetricBatchRequestSerializer,
+    MetricLogSerializer,
+    ServerInventorySerializer,
+)
 from .throttling import ServerIngestRateThrottle
+
+_TELEMETRY_AUTH_CLASSES = [
+    AgentKeyAuthentication,
+    TenantTokenAuthentication,
+    TenantSessionAuthentication,
+]
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +76,7 @@ def _build_stream_payload(validated_data, now):
 
 
 class TelemetryIngestView(APIView):
+    authentication_classes = _TELEMETRY_AUTH_CLASSES
     permission_classes = [IsAuthenticated]
     throttle_classes = [ServerIngestRateThrottle]
     parser_classes = [GzipJSONParser]
@@ -96,6 +114,7 @@ class TelemetryIngestView(APIView):
 
 
 class TelemetryBatchIngestView(APIView):
+    authentication_classes = _TELEMETRY_AUTH_CLASSES
     permission_classes = [IsAuthenticated]
     throttle_classes = [ServerIngestRateThrottle]
     parser_classes = [GzipJSONParser]
@@ -181,6 +200,7 @@ class TelemetryBatchIngestView(APIView):
 
 
 class TelemetryInventoryView(APIView):
+    authentication_classes = _TELEMETRY_AUTH_CLASSES
     permission_classes = [IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
@@ -223,16 +243,28 @@ class TelemetryInventoryView(APIView):
 
 
 class TelemetryConfigView(APIView):
+    authentication_classes = _TELEMETRY_AUTH_CLASSES
     permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
+        is_agent = getattr(request.user, 'is_agent', False)
+        agent_server_id = getattr(request.user, 'server_id', None) if is_agent else None
         server_id = request.headers.get('X-Server-ID')
         if not server_id:
-            return Response({'error': 'X-Server-ID header is required'}, status=status.HTTP_400_BAD_REQUEST)
-        try:
-            server_uuid = uuid.UUID(server_id)
-        except (ValueError, TypeError):
-            return Response({'error': 'Invalid X-Server-ID header'}, status=status.HTTP_400_BAD_REQUEST)
+            if agent_server_id is not None:
+                server_uuid = agent_server_id
+            else:
+                return Response({'error': 'X-Server-ID header is required'}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            try:
+                server_uuid = uuid.UUID(server_id)
+            except (ValueError, TypeError):
+                return Response({'error': 'Invalid X-Server-ID header'}, status=status.HTTP_400_BAD_REQUEST)
+            if agent_server_id is not None and server_uuid != agent_server_id:
+                return Response(
+                    {'error': 'Agent key is not authorized for this server'},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
         company_id = getattr(request.user, 'company_id', None)
         if not company_id:
             return Response({'error': 'Server not found'}, status=status.HTTP_404_NOT_FOUND)
@@ -253,3 +285,63 @@ class TelemetryConfigView(APIView):
             return response
         except Server.DoesNotExist:
             return Response({'error': 'Server not found'}, status=status.HTTP_404_NOT_FOUND)
+
+
+class TelemetryEnrollView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        serializer = AgentEnrollmentSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        data = serializer.validated_data
+        raw_token = data['enrollment_token'].strip()
+        if '.' not in raw_token:
+            return Response({'error': 'Invalid or expired enrollment token.'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        prefix = raw_token.split('.', 1)[0]
+        now = timezone.now()
+
+        with transaction.atomic():
+            token = (
+                EnrollmentToken.unscoped.select_for_update()
+                .select_related('company')
+                .filter(prefix=prefix)
+                .first()
+            )
+            if token is None or not token.verify(raw_token, now=now):
+                return Response(
+                    {'error': 'Invalid or expired enrollment token.'},
+                    status=status.HTTP_401_UNAUTHORIZED,
+                )
+
+            token.uses_count += 1
+            token.save(update_fields=['uses_count'])
+
+            server = Server.unscoped.create(
+                company=token.company,
+                name=data['name'],
+                hostname=data.get('hostname'),
+                os_info=data.get('os_info'),
+                kernel=data.get('kernel'),
+                cpu_model=data.get('cpu_model'),
+                cpu_cores=data.get('cpu_cores'),
+                total_ram_bytes=data.get('total_ram_bytes'),
+                agent_version=data.get('agent_version'),
+                ip_address=_extract_remote_ip(request),
+                is_active=True,
+                last_ping=now,
+            )
+            agent_key, plaintext_key = AgentKey.generate(server=server)
+
+        return Response(
+            {
+                'server_id': str(server.id),
+                'agent_key': plaintext_key,
+                'key_prefix': agent_key.prefix,
+                'telemetry_cadence': server.telemetry_cadence,
+            },
+            status=status.HTTP_201_CREATED,
+        )

@@ -2,7 +2,7 @@ from datetime import timedelta
 from django.utils import timezone
 from rest_framework import serializers
 from monitoring.heartbeat import compute_offline_threshold_seconds, get_live_heartbeats
-from .models import Server
+from .models import AgentKey, EnrollmentToken, Server
 
 
 class ServerSerializer(serializers.ModelSerializer):
@@ -63,3 +63,50 @@ class ServerSerializer(serializers.ModelSerializer):
         if timezone.now() - effective <= threshold:
             return 'online'
         return 'offline'
+
+
+class EnrollmentTokenSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = EnrollmentToken
+        fields = [
+            'id',
+            'name',
+            'prefix',
+            'max_uses',
+            'uses_count',
+            'expires_at',
+            'revoked_at',
+            'created_at',
+        ]
+        read_only_fields = fields
+
+
+class EnrollmentTokenCreateSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=128)
+    max_uses = serializers.IntegerField(min_value=1, max_value=10000, required=False, allow_null=True, default=1)
+    expires_in_hours = serializers.IntegerField(
+        min_value=1,
+        max_value=8760,
+        required=False,
+        allow_null=True,
+        default=24,
+    )
+
+
+class AgentKeySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AgentKey
+        fields = [
+            'id',
+            'server',
+            'prefix',
+            'is_active',
+            'created_at',
+            'last_used_at',
+            'revoked_at',
+        ]
+        read_only_fields = fields
+
+
+class AgentKeyServerActionSerializer(serializers.Serializer):
+    server = serializers.UUIDField()

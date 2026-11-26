@@ -70,10 +70,11 @@ impl AgentConfig {
             return Err(ConfigError::InvalidUrl(api_base_url));
         }
 
-        let api_token = env::var("SYSROAR_API_TOKEN")
+        let api_token = env::var("SYSROAR_AGENT_KEY")
             .ok()
             .filter(|v| !v.trim().is_empty())
-            .ok_or(ConfigError::MissingEnv("SYSROAR_API_TOKEN"))?;
+            .or_else(|| env::var("SYSROAR_API_TOKEN").ok().filter(|v| !v.trim().is_empty()))
+            .ok_or(ConfigError::MissingEnv("SYSROAR_AGENT_KEY"))?;
 
         let server_id = env::var("SYSROAR_SERVER_ID")
             .ok()

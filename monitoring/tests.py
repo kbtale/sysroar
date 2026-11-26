@@ -573,3 +573,169 @@ class SelfObservabilityTests(TestCase):
             self.assertIn('sysroar_alert_eval_duration_seconds_count', body)
             self.assertIn('sysroar_notification_outbox_pending', body)
             self.assertIn('sysroar_notification_outbox_failed_total', body)
+
+
+class AgentKeyAndEnrollmentTests(TestCase):
+    def setUp(self):
+        user_model = get_user_model()
+        self.company_a = Company.objects.create(name='Tenant Alpha')
+        self.company_b = Company.objects.create(name='Tenant Beta')
+        self.user_a = user_model.objects.create_user(
+            username='alpha_admin',
+            email='alpha@example.com',
+            password='secure-password-123',
+            company=self.company_a,
+        )
+        self.user_b = user_model.objects.create_user(
+            username='beta_admin',
+            email='beta@example.com',
+            password='secure-password-123',
+            company=self.company_b,
+        )
+        self.token_a = Token.objects.create(user=self.user_a)
+        self.token_b = Token.objects.create(user=self.user_b)
+        self.server_a1 = Server.unscoped.create(name='alpha-1', company=self.company_a, is_active=True)
+        self.server_a2 = Server.unscoped.create(name='alpha-2', company=self.company_a, is_active=True)
+        self.server_b1 = Server.unscoped.create(name='beta-1', company=self.company_b, is_active=True)
+        self.client_a = APIClient()
+        self.client_a.credentials(HTTP_AUTHORIZATION=f'Token {self.token_a.key}')
+        self.client_b = APIClient()
+        self.client_b.credentials(HTTP_AUTHORIZATION=f'Token {self.token_b.key}')
+
+    def test_enrollment_flow_issues_one_time_key_and_enforces_max_uses(self):
+        create_resp = self.client_a.post(
+            '/api/monitoring/enrollment-tokens/',
+            {'name': 'single-use', 'max_uses': 1, 'expires_in_hours': 1},
+            format='json',
+        )
+        self.assertEqual(create_resp.status_code, 201)
+        raw_token = create_resp.data['token']
+        self.assertTrue(raw_token.startswith('sre_'))
+
+        list_resp = self.client_a.get('/api/monitoring/enrollment-tokens/')
+        self.assertEqual(list_resp.status_code, 200)
+        self.assertNotIn('token', list_resp.data['results'][0])
+        self.assertNotIn('token_hash', list_resp.data['results'][0])
+
+        anon = APIClient()
+        enroll = anon.post(
+            reverse('telemetry-enroll'),
+            {
+                'enrollment_token': raw_token,
+                'name': 'enrolled-web-01',
+                'hostname': 'web-01.internal',
+                'agent_version': '0.1.0',
+            },
+            format='json',
+        )
+        self.assertEqual(enroll.status_code, 201)
+        self.assertTrue(enroll.data['agent_key'].startswith('srk_'))
+        enrolled_server = Server.unscoped.get(id=enroll.data['server_id'])
+        self.assertEqual(enrolled_server.company_id, self.company_a.id)
+
+        second_use = anon.post(
+            reverse('telemetry-enroll'),
+            {'enrollment_token': raw_token, 'name': 'replay-node'},
+            format='json',
+        )
+        self.assertEqual(second_use.status_code, 401)
+
+    def test_agent_key_scoped_to_own_server_and_blocked_from_monitoring_api(self):
+        from .models import AgentKey
+
+        key_obj, raw_key = AgentKey.generate(server=self.server_a1, created_by=self.user_a)
+        agent_client = APIClient()
+        agent_client.credentials(HTTP_AUTHORIZATION=f'AgentKey {raw_key}')
+
+        self.assertEqual(agent_client.get('/api/monitoring/servers/').status_code, 401)
+        self.assertEqual(agent_client.get('/api/monitoring/agent-keys/').status_code, 401)
+        self.assertEqual(agent_client.get('/api/monitoring/enrollment-tokens/').status_code, 401)
+        self.assertEqual(agent_client.post('/api/accounts/auth/ticket/').status_code, 401)
+
+        with patch('telemetry.views.push_to_stream'):
+            ok_ingest = agent_client.post(
+                reverse('telemetry-ingest'),
+                {'server': str(self.server_a1.id), 'cpu_usage': 22.0, 'ram_usage': 41.0},
+                format='json',
+            )
+            self.assertEqual(ok_ingest.status_code, 202)
+
+            same_tenant_other = agent_client.post(
+                reverse('telemetry-ingest'),
+                {'server': str(self.server_a2.id), 'cpu_usage': 22.0, 'ram_usage': 41.0},
+                format='json',
+            )
+            self.assertEqual(same_tenant_other.status_code, 400)
+
+            cross_tenant = agent_client.post(
+                reverse('telemetry-ingest'),
+                {'server': str(self.server_b1.id), 'cpu_usage': 22.0, 'ram_usage': 41.0},
+                format='json',
+            )
+            self.assertEqual(cross_tenant.status_code, 400)
+
+        ok_config = agent_client.get(reverse('telemetry-config'), HTTP_X_SERVER_ID=str(self.server_a1.id))
+        self.assertEqual(ok_config.status_code, 200)
+
+        other_config = agent_client.get(reverse('telemetry-config'), HTTP_X_SERVER_ID=str(self.server_a2.id))
+        self.assertEqual(other_config.status_code, 403)
+
+        ok_inventory = agent_client.post(
+            reverse('telemetry-inventory'),
+            {'server': str(self.server_a1.id), 'hostname': 'alpha-1.local'},
+            format='json',
+        )
+        self.assertEqual(ok_inventory.status_code, 200)
+
+        other_inventory = agent_client.post(
+            reverse('telemetry-inventory'),
+            {'server': str(self.server_a2.id), 'hostname': 'spoofed'},
+            format='json',
+        )
+        self.assertEqual(other_inventory.status_code, 400)
+
+        key_obj.revoke()
+        revoked_cfg = agent_client.get(reverse('telemetry-config'), HTTP_X_SERVER_ID=str(self.server_a1.id))
+        self.assertEqual(revoked_cfg.status_code, 401)
+
+    def test_key_rotation_and_cross_tenant_management_isolation(self):
+        create_resp = self.client_a.post(
+            '/api/monitoring/agent-keys/',
+            {'server': str(self.server_a1.id)},
+            format='json',
+        )
+        self.assertEqual(create_resp.status_code, 201)
+        old_key = create_resp.data['key']
+        key_id = create_resp.data['id']
+
+        self.assertEqual(self.client_b.get(f'/api/monitoring/agent-keys/{key_id}/').status_code, 404)
+        self.assertEqual(self.client_b.post(f'/api/monitoring/agent-keys/{key_id}/revoke/').status_code, 404)
+        cross_create = self.client_b.post(
+            '/api/monitoring/agent-keys/',
+            {'server': str(self.server_a1.id)},
+            format='json',
+        )
+        self.assertEqual(cross_create.status_code, 404)
+        cross_rotate = self.client_b.post(
+            '/api/monitoring/agent-keys/rotate/',
+            {'server': str(self.server_a1.id)},
+            format='json',
+        )
+        self.assertEqual(cross_rotate.status_code, 404)
+
+        rotate_resp = self.client_a.post(
+            '/api/monitoring/agent-keys/rotate/',
+            {'server': str(self.server_a1.id)},
+            format='json',
+        )
+        self.assertEqual(rotate_resp.status_code, 201)
+        new_key = rotate_resp.data['key']
+        self.assertNotEqual(old_key, new_key)
+
+        old_agent = APIClient()
+        old_agent.credentials(HTTP_AUTHORIZATION=f'AgentKey {old_key}')
+        self.assertEqual(old_agent.get(reverse('telemetry-config')).status_code, 401)
+
+        new_agent = APIClient()
+        new_agent.credentials(HTTP_AUTHORIZATION=f'AgentKey {new_key}')
+        self.assertEqual(new_agent.get(reverse('telemetry-config')).status_code, 200)

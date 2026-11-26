@@ -120,30 +120,42 @@ jobs:
       - name: Run Rust agent integration test against live backend
         run: |
           python manage.py migrate --noinput
-          read -r TOKEN SERVER_ID < <(python -c "
+          ENROLL_TOKEN=$(python -c "
           import os, django
           os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
           django.setup()
-          from django.contrib.auth import get_user_model
-          from rest_framework.authtoken.models import Token
           from accounts.models import Company
-          from monitoring.models import Server
-          User = get_user_model()
+          from monitoring.models import EnrollmentToken
           c = Company.objects.create(name='CI Agent Co')
-          u = User.objects.create_user(username='ci_agent', password='password123', company=c)
-          t = Token.objects.create(user=u)
-          s = Server.unscoped.create(name='ci-host', company=c)
-          print(t.key, s.id)
+          _, raw = EnrollmentToken.generate(company=c, name='ci-enroll', max_uses=1, expires_in_hours=1)
+          print(raw)
           ")
           daphne -b 127.0.0.1 -p 8000 config.asgi:application &
           SERVER_PID=$!
           trap "kill $SERVER_PID || true" EXIT
           for i in $(seq 1 30); do
-            if curl -sf http://127.0.0.1:8000/admin/login/ >/dev/null; then break; fi
+            if curl -sf http://127.0.0.1:8000/healthz >/dev/null; then break; fi
             sleep 0.5
           done
+          read -r AGENT_KEY SERVER_ID < <(python -c "
+          import requests
+          r = requests.post(
+              'http://127.0.0.1:8000/api/telemetry/enroll/',
+              json={'enrollment_token': '$ENROLL_TOKEN', 'name': 'ci-host', 'agent_version': '0.1.0'},
+              timeout=10,
+          )
+          assert r.status_code == 201, (r.status_code, r.text)
+          data = r.json()
+          blocked = requests.get(
+              'http://127.0.0.1:8000/api/monitoring/servers/',
+              headers={'Authorization': f'AgentKey {data[\"agent_key\"]}'},
+              timeout=10,
+          )
+          assert blocked.status_code == 401, blocked.status_code
+          print(data['agent_key'], data['server_id'])
+          ")
           SYSROAR_API_BASE_URL=http://127.0.0.1:8000 \
-          SYSROAR_API_TOKEN="$TOKEN" \
+          SYSROAR_AGENT_KEY="$AGENT_KEY" \
           SYSROAR_SERVER_ID="$SERVER_ID" \
           SYSROAR_BUFFER_PATH=/tmp/ci-agent-buffer.db \
             agent/target/debug/sysroar-agent --once

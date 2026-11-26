@@ -1,6 +1,6 @@
 from django.contrib import admin
 from accounts.admin import TenantAwareModelAdmin
-from .models import AlertRule, AlertState, NotificationOutbox, Server, ServerAlertState
+from .models import AgentKey, AlertRule, AlertState, EnrollmentToken, NotificationOutbox, Server, ServerAlertState
 
 
 @admin.register(Server)
@@ -44,3 +44,17 @@ class NotificationOutboxAdmin(TenantAwareModelAdmin):
 class ServerAlertStateAdmin(TenantAwareModelAdmin):
     list_display = ('server', 'current_cooldown_tier', 'consecutive_healthy_count', 'last_alert_sent_at')
     readonly_fields = ('server',)
+
+
+@admin.register(EnrollmentToken)
+class EnrollmentTokenAdmin(TenantAwareModelAdmin):
+    list_display = ('name', 'prefix', 'company', 'uses_count', 'max_uses', 'expires_at', 'revoked_at')
+    list_filter = ('company',)
+    readonly_fields = ('id', 'prefix', 'token_hash', 'uses_count', 'created_at', 'revoked_at')
+
+
+@admin.register(AgentKey)
+class AgentKeyAdmin(TenantAwareModelAdmin):
+    list_display = ('prefix', 'server', 'company', 'is_active', 'last_used_at', 'revoked_at')
+    list_filter = ('is_active', 'company')
+    readonly_fields = ('id', 'prefix', 'key_hash', 'created_at', 'last_used_at', 'revoked_at')
