@@ -270,7 +270,9 @@ fn round2(value: f64) -> f64 {
 
 #[cfg(target_os = "linux")]
 fn read_load_average() -> [f64; 3] {
-    if let Ok(load) = procfs::LoadAverage::new() {
+    use procfs::Current;
+
+    if let Ok(load) = procfs::LoadAverage::current() {
         return [f64::from(load.one), f64::from(load.five), f64::from(load.fifteen)];
     }
     let fallback = System::load_average();
