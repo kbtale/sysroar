@@ -109,6 +109,7 @@ ASGI_APPLICATION = 'config.asgi.application'
 DATABASES = {
     'default': env.db('DATABASE_URL', default='postgres://sysroar_user:sysroar_password@db:5432/sysroar')
 }
+DATABASES['default'].setdefault('OPTIONS', {})['connect_timeout'] = env.int('DB_CONNECT_TIMEOUT', default=5)
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
