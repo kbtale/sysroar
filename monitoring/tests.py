@@ -10,7 +10,7 @@ from rest_framework.authtoken.models import Token
 from rest_framework.test import APIClient
 from accounts.models import Company
 from config.celery import app as celery_app
-from telemetry.ingestion import TELEMETRY_QUEUE_KEY
+from telemetry.ingestion import TELEMETRY_STREAM_KEY
 from telemetry.models import MetricLog
 from .models import AlertRule, Server, ServerAlertState, SystemEvent
 from .tasks import check_system_health, evaluate_metrics_batch, record_system_event
@@ -155,10 +155,10 @@ class ServerApiAndHeartbeatTests(TestCase):
         )
 
         self.redis_con = get_redis_connection('default')
-        self.redis_con.delete(TELEMETRY_QUEUE_KEY)
+        self.redis_con.delete(TELEMETRY_STREAM_KEY)
 
     def tearDown(self):
-        get_redis_connection('default').delete(TELEMETRY_QUEUE_KEY)
+        get_redis_connection('default').delete(TELEMETRY_STREAM_KEY)
 
     def test_list_servers_returns_real_fields_computed_status_and_enforces_tenancy(self):
         response = self.client.get('/api/monitoring/servers/')
