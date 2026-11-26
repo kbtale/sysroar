@@ -86,3 +86,51 @@ class MetricBatchRequestSerializer(serializers.Serializer):
         if len(value) > max_batch:
             raise serializers.ValidationError(f'Batch cannot exceed {max_batch} samples.')
         return value
+
+
+class ServerInventorySerializer(serializers.Serializer):
+    server = serializers.UUIDField()
+    hostname = serializers.CharField(max_length=255, required=False, allow_blank=True, allow_null=True)
+    os_info = serializers.CharField(max_length=255, required=False, allow_blank=True, allow_null=True)
+    kernel = serializers.CharField(max_length=255, required=False, allow_blank=True, allow_null=True)
+    cpu_model = serializers.CharField(max_length=255, required=False, allow_blank=True, allow_null=True)
+    cpu_cores = serializers.IntegerField(min_value=1, max_value=4096, required=False, allow_null=True)
+    total_ram_bytes = serializers.IntegerField(min_value=0, required=False, allow_null=True)
+    ip_address = serializers.IPAddressField(required=False, allow_null=True)
+    agent_version = serializers.CharField(max_length=64, required=False, allow_blank=True, allow_null=True)
+
+    def _clean_text(self, value):
+        if value is None:
+            return None
+        cleaned = _CONTROL_CHARS_RE.sub('', value).strip()
+        return cleaned or None
+
+    def validate_hostname(self, value):
+        return self._clean_text(value)
+
+    def validate_os_info(self, value):
+        return self._clean_text(value)
+
+    def validate_kernel(self, value):
+        return self._clean_text(value)
+
+    def validate_cpu_model(self, value):
+        return self._clean_text(value)
+
+    def validate_agent_version(self, value):
+        return self._clean_text(value)
+
+    def validate_server(self, value):
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        user_company_id = getattr(user, 'company_id', None) if user and user.is_authenticated else None
+        server = Server.unscoped.filter(id=value).only('id', 'company_id').first()
+        if server is None or user_company_id is None or server.company_id != user_company_id:
+            raise serializers.ValidationError('Server does not exist or access denied.')
+        self._validated_server = server
+        return value
+
+    def validate(self, attrs):
+        attrs['server_id'] = self._validated_server.id
+        attrs['company_id'] = self._validated_server.company_id
+        return attrs

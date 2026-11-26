@@ -163,6 +163,52 @@ class TelemetryIngestionTests(APITestCase):
         invalid_resp = self.client.get(self.config_url, HTTP_X_SERVER_ID='not-a-uuid')
         self.assertEqual(invalid_resp.status_code, status.HTTP_400_BAD_REQUEST)
 
+        etag = own_resp['ETag']
+        not_modified = self.client.get(
+            self.config_url,
+            HTTP_X_SERVER_ID=str(self.server_a.id),
+            HTTP_IF_NONE_MATCH=etag,
+        )
+        self.assertEqual(not_modified.status_code, status.HTTP_304_NOT_MODIFIED)
+
+    def test_inventory_endpoint_updates_host_metadata_and_blocks_cross_tenant(self):
+        self._auth(self.token_a)
+        inventory_url = reverse('telemetry-inventory')
+
+        resp = self.client.post(
+            inventory_url,
+            {
+                'server': str(self.server_a.id),
+                'hostname': 'prod-web-01',
+                'os_info': 'Ubuntu 24.04.1 LTS',
+                'kernel': '6.8.0-45-generic',
+                'cpu_model': 'AMD EPYC 7763',
+                'cpu_cores': 8,
+                'total_ram_bytes': 17179869184,
+                'ip_address': '10.10.0.5',
+                'agent_version': '0.1.0',
+            },
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.server_a.refresh_from_db()
+        self.assertEqual(self.server_a.hostname, 'prod-web-01')
+        self.assertEqual(self.server_a.kernel, '6.8.0-45-generic')
+        self.assertEqual(self.server_a.cpu_cores, 8)
+        self.assertEqual(self.server_a.agent_version, '0.1.0')
+
+        cross = self.client.post(
+            inventory_url,
+            {
+                'server': str(self.server_b.id),
+                'hostname': 'pwned-host',
+            },
+            format='json',
+        )
+        self.assertEqual(cross.status_code, status.HTTP_400_BAD_REQUEST)
+        self.server_b.refresh_from_db()
+        self.assertIsNone(self.server_b.hostname)
+
 
 class WebSocketConsumerAuthTests(TransactionTestCase):
     def setUp(self):

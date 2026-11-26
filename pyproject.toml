@@ -1,7 +1,7 @@
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings"
 python_files = ["tests.py", "tests_*.py", "test_*.py"]
-testpaths = ["accounts", "agent", "config", "monitoring", "telemetry"]
+testpaths = ["accounts", "config", "monitoring", "telemetry"]
 asyncio_default_fixture_loop_scope = "function"
 
 [tool.ruff]

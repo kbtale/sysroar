@@ -1,0 +1,24 @@
+[Unit]
+Description=SysRoar Telemetry Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+StateDirectory=sysroar-agent
+EnvironmentFile=/etc/sysroar-agent/agent.env
+Environment=SYSROAR_BUFFER_PATH=/var/lib/sysroar-agent/buffer.db
+ExecStart=/usr/local/bin/sysroar-agent
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictRealtime=yes
+
+[Install]
+WantedBy=multi-user.target
