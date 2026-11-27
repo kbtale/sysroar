@@ -43,6 +43,43 @@ class AlertRuleViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(company_id=self.request.user.company_id)
 
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        rule = serializer.save(company_id=request.user.company_id)
+        data = self.get_serializer(rule).data
+        if rule.notification_type == 'WEBHOOK' and rule.webhook_secret:
+            data['webhook_secret'] = rule.webhook_secret
+        return Response(data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['post'], url_path='test-webhook')
+    def test_webhook(self, request, pk=None):
+        import requests as http_requests
+        from telemetry.notifications.ssrf import SSRFBlockedError
+        from telemetry.notifications.webhook import WebhookStrategy
+
+        rule = self.get_object()
+        if rule.notification_type != 'WEBHOOK' or not rule.notification_target:
+            return Response(
+                {'error': 'Rule is not configured with a webhook target.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            delivered, detail = WebhookStrategy().send_test(rule)
+        except SSRFBlockedError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except http_requests.RequestException:
+            return Response(
+                {'delivered': False, 'error': 'Webhook delivery failed.'},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        if delivered:
+            return Response({'delivered': True, 'detail': detail}, status=status.HTTP_200_OK)
+        return Response(
+            {'delivered': False, 'detail': detail},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+
 
 class EnrollmentTokenViewSet(
     TenantScopedViewSetMixin,

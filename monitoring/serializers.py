@@ -2,6 +2,7 @@ from datetime import timedelta
 from django.utils import timezone
 from rest_framework import serializers
 from monitoring.heartbeat import compute_offline_threshold_seconds, get_live_heartbeats
+from telemetry.notifications.ssrf import SSRFBlockedError, validate_webhook_url
 from .models import AgentKey, AlertRule, EnrollmentToken, Server
 
 
@@ -114,6 +115,7 @@ class AgentKeyServerActionSerializer(serializers.Serializer):
 
 class AlertRuleSerializer(serializers.ModelSerializer):
     server = serializers.PrimaryKeyRelatedField(queryset=Server.unscoped.all())
+    has_webhook_secret = serializers.SerializerMethodField()
 
     class Meta:
         model = AlertRule
@@ -130,8 +132,16 @@ class AlertRuleSerializer(serializers.ModelSerializer):
             'is_active',
             'notification_type',
             'notification_target',
+            'webhook_secret',
+            'has_webhook_secret',
         ]
-        read_only_fields = ['id']
+        read_only_fields = ['id', 'has_webhook_secret']
+        extra_kwargs = {
+            'webhook_secret': {'write_only': True, 'required': False},
+        }
+
+    def get_has_webhook_secret(self, obj):
+        return bool(obj.webhook_secret)
 
     def validate_server(self, value):
         request = self.context.get('request')
@@ -139,3 +149,19 @@ class AlertRuleSerializer(serializers.ModelSerializer):
         if not company_id or value.company_id != company_id:
             raise serializers.ValidationError('Server does not exist or access denied.')
         return value
+
+    def validate(self, attrs):
+        notification_type = attrs.get(
+            'notification_type',
+            getattr(self.instance, 'notification_type', 'EMAIL'),
+        )
+        notification_target = attrs.get(
+            'notification_target',
+            getattr(self.instance, 'notification_target', None),
+        )
+        if notification_type == 'WEBHOOK':
+            try:
+                validate_webhook_url(notification_target or '')
+            except SSRFBlockedError as exc:
+                raise serializers.ValidationError({'notification_target': str(exc)}) from exc
+        return attrs
