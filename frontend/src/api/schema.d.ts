@@ -1309,6 +1309,9 @@ export interface components {
             readonly sparkline: {
                 [key: string]: unknown;
             }[];
+            readonly latest_details: {
+                [key: string]: unknown;
+            };
             /** Format: date-time */
             readonly created_at: string;
         };

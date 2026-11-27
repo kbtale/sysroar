@@ -141,7 +141,7 @@ jobs:
           import requests
           r = requests.post(
               'http://127.0.0.1:8000/api/telemetry/enroll/',
-              json={'enrollment_token': '$ENROLL_TOKEN', 'name': 'ci-host', 'agent_version': '0.1.0'},
+              json={'enrollment_token': '$ENROLL_TOKEN', 'name': 'ci-host', 'agent_version': '0.2.0'},
               timeout=10,
           )
           assert r.status_code == 201, (r.status_code, r.text)
@@ -167,7 +167,7 @@ jobs:
           from monitoring.models import Server
           from telemetry.models import MetricLog
           s = Server.unscoped.get(id='$SERVER_ID')
-          assert s.agent_version == '0.1.0', s.agent_version
+          assert s.agent_version == '0.2.0', s.agent_version
           assert MetricLog.unscoped.filter(server=s).count() == 1
           print('Rust agent integration test passed')
           "

@@ -26,6 +26,7 @@ class ServerSerializer(serializers.ModelSerializer):
     status = serializers.SerializerMethodField()
     alert_status = serializers.SerializerMethodField()
     sparkline = serializers.SerializerMethodField()
+    latest_details = serializers.SerializerMethodField()
 
     class Meta:
         model = Server
@@ -48,9 +49,18 @@ class ServerSerializer(serializers.ModelSerializer):
             'status',
             'alert_status',
             'sparkline',
+            'latest_details',
             'created_at',
         ]
-        read_only_fields = ['id', 'last_seen', 'status', 'alert_status', 'sparkline', 'created_at']
+        read_only_fields = [
+            'id',
+            'last_seen',
+            'status',
+            'alert_status',
+            'sparkline',
+            'latest_details',
+            'created_at',
+        ]
 
     def validate_tags(self, value):
         if value is None:
@@ -112,6 +122,12 @@ class ServerSerializer(serializers.ModelSerializer):
         if spark_map is not None:
             return spark_map.get(str(obj.id), [])
         return []
+
+    def get_latest_details(self, obj) -> dict:
+        details_map = self.context.get('latest_details')
+        if details_map is not None:
+            return details_map.get(str(obj.id), {})
+        return {}
 
 
 class EnrollmentTokenSerializer(serializers.ModelSerializer):

@@ -8,7 +8,7 @@ from monitoring.models import Server
 
 _CONTROL_CHARS_RE = re.compile(r'[\x00-\x1f\x7f]')
 MAX_FUTURE_DRIFT = timedelta(minutes=5)
-MAX_DETAILS_BYTES = 16384
+MAX_DETAILS_BYTES = 65536
 
 
 class MetricLogSerializer(serializers.Serializer):

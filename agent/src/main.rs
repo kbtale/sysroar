@@ -4,6 +4,7 @@ use std::time::Duration;
 use sysroar_agent::buffer::DiskBuffer;
 use sysroar_agent::collector::SystemCollector;
 use sysroar_agent::config::{clamp_cadence, AgentConfig};
+use sysroar_agent::docker::collect_docker_containers;
 use sysroar_agent::transport::{TransportClient, TransportError};
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
@@ -89,7 +90,8 @@ async fn main() {
 
     let run_once = std::env::args().any(|arg| arg == "--once");
     if run_once {
-        let sample = collector.collect_sample(&config.server_id);
+        let mut sample = collector.collect_sample(&config.server_id);
+        sample.details.docker_containers = collect_docker_containers(20).await;
         if let Err(err) = buffer.push(&sample) {
             error!(error = %err, "failed to buffer sample");
             std::process::exit(1);
@@ -112,7 +114,8 @@ async fn main() {
                 break;
             }
             _ = collect_interval.tick() => {
-                let sample = collector.collect_sample(&config.server_id);
+                let mut sample = collector.collect_sample(&config.server_id);
+                sample.details.docker_containers = collect_docker_containers(20).await;
                 if let Err(err) = buffer.push(&sample) {
                     error!(error = %err, "failed to append sample to disk buffer");
                 }

@@ -2593,6 +2593,10 @@ components:
             type: object
             additionalProperties: {}
           readOnly: true
+        latest_details:
+          type: object
+          additionalProperties: {}
+          readOnly: true
         created_at:
           type: string
           format: date-time
@@ -2603,6 +2607,7 @@ components:
       - id
       - ip_address
       - last_seen
+      - latest_details
       - name
       - os_info
       - sparkline
