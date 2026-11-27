@@ -292,3 +292,206 @@ class SessionCsrfAuthTests(TestCase):
         ws_user = asyncio.run(check_ws_ticket())
         self.assertFalse(ws_user.is_authenticated)
         self.assertIsNone(ticket_manager.consume_ticket(stale_ticket))
+
+
+class SelfHostedTenancyAndRbacTests(TestCase):
+    def test_setup_wizard_runs_once_and_blocks_reexecution(self):
+        from rest_framework.test import APIClient
+
+        client = APIClient()
+        status_before = client.get('/api/accounts/setup/status/')
+        self.assertEqual(status_before.status_code, 200)
+        self.assertTrue(status_before.data['needs_setup'])
+        self.assertFalse(status_before.data['open_registration'])
+
+        first = client.post(
+            '/api/accounts/setup/',
+            {
+                'company_name': 'Primary MSP',
+                'username': 'root_admin',
+                'email': 'root@example.com',
+                'password': 'VeryStrongPassword!99',
+            },
+            format='json',
+        )
+        self.assertEqual(first.status_code, 201)
+        self.assertTrue(first.data['user']['is_superuser'])
+        self.assertEqual(first.data['user']['role'], User.ROLE_OWNER)
+
+        status_after = client.get('/api/accounts/setup/status/')
+        self.assertFalse(status_after.data['needs_setup'])
+
+        second = client.post(
+            '/api/accounts/setup/',
+            {
+                'company_name': 'Attacker Co',
+                'username': 'attacker',
+                'email': 'attacker@example.com',
+                'password': 'VeryStrongPassword!99',
+            },
+            format='json',
+        )
+        self.assertEqual(second.status_code, 403)
+
+    def test_open_registration_disabled_by_default_and_honors_setting(self):
+        from django.test import override_settings
+        from rest_framework.test import APIClient
+
+        client = APIClient()
+        payload = {
+            'company_name': 'Self Signup Co',
+            'username': 'open_user',
+            'email': 'open@example.com',
+            'password': 'VeryStrongPassword!99',
+        }
+        blocked = client.post('/api/accounts/auth/register/', payload, format='json')
+        self.assertEqual(blocked.status_code, 403)
+
+        with override_settings(OPEN_REGISTRATION=True):
+            allowed = client.post('/api/accounts/auth/register/', payload, format='json')
+        self.assertEqual(allowed.status_code, 201)
+        self.assertEqual(allowed.data['user']['role'], User.ROLE_OWNER)
+
+    def test_invite_copyable_link_accept_replay_and_rbac_boundaries(self):
+        from django.test import override_settings
+        from rest_framework.test import APIClient
+
+        company_a = Company.objects.create(name='MSP Client A')
+        company_b = Company.objects.create(name='MSP Client B')
+        owner_a = User.objects.create_user(
+            username='owner_a',
+            email='owner_a@example.com',
+            password='VeryStrongPassword!99',
+            company=company_a,
+            role=User.ROLE_OWNER,
+        )
+        admin_a = User.objects.create_user(
+            username='admin_a',
+            email='admin_a@example.com',
+            password='VeryStrongPassword!99',
+            company=company_a,
+            role=User.ROLE_ADMIN,
+        )
+        member_a = User.objects.create_user(
+            username='member_a',
+            email='member_a@example.com',
+            password='VeryStrongPassword!99',
+            company=company_a,
+            role=User.ROLE_MEMBER,
+        )
+        viewer_a = User.objects.create_user(
+            username='viewer_a',
+            email='viewer_a@example.com',
+            password='VeryStrongPassword!99',
+            company=company_a,
+            role=User.ROLE_VIEWER,
+        )
+        admin_b = User.objects.create_user(
+            username='admin_b',
+            email='admin_b@example.com',
+            password='VeryStrongPassword!99',
+            company=company_b,
+            role=User.ROLE_ADMIN,
+        )
+        superuser = User.objects.create_superuser(
+            username='msp_root',
+            email='msp_root@example.com',
+            password='VeryStrongPassword!99',
+        )
+
+        def client_for(user):
+            c = APIClient()
+            c.force_authenticate(user=user)
+            return c
+
+        c_owner_a = client_for(owner_a)
+        c_admin_a = client_for(admin_a)
+        c_member_a = client_for(member_a)
+        c_viewer_a = client_for(viewer_a)
+        c_admin_b = client_for(admin_b)
+        c_super = client_for(superuser)
+
+        self.assertEqual(
+            c_admin_a.post(
+                '/api/accounts/invites/',
+                {'email': 'nope@example.com', 'role': User.ROLE_OWNER},
+                format='json',
+            ).status_code,
+            403,
+        )
+
+        with override_settings(EMAIL_BACKEND='django.core.mail.backends.dummy.EmailBackend'):
+            inv = c_admin_a.post(
+                '/api/accounts/invites/',
+                {'email': 'newbie@example.com', 'role': User.ROLE_VIEWER},
+                format='json',
+            )
+        self.assertEqual(inv.status_code, 201)
+        self.assertFalse(inv.data['email_sent'])
+        self.assertIn('/accept-invite?token=', inv.data['invite_url'])
+        raw_token = inv.data['token']
+
+        self.assertEqual(c_admin_b.get(f"/api/accounts/invites/{inv.data['id']}/").status_code, 404)
+
+        anon = APIClient()
+        accepted = anon.post(
+            '/api/accounts/invites/accept/',
+            {'token': raw_token, 'username': 'invited_viewer', 'password': 'VeryStrongPassword!99'},
+            format='json',
+        )
+        self.assertEqual(accepted.status_code, 201)
+        self.assertEqual(accepted.data['user']['role'], User.ROLE_VIEWER)
+        self.assertEqual(accepted.data['user']['company_id'], str(company_a.id))
+
+        replayed = anon.post(
+            '/api/accounts/invites/accept/',
+            {'token': raw_token, 'username': 'replay_user', 'password': 'VeryStrongPassword!99'},
+            format='json',
+        )
+        self.assertEqual(replayed.status_code, 400)
+
+        self.assertEqual(c_viewer_a.get('/api/monitoring/servers/').status_code, 200)
+        self.assertEqual(
+            c_viewer_a.post('/api/monitoring/servers/', {'name': 'blocked'}, format='json').status_code,
+            403,
+        )
+
+        created_srv = c_member_a.post('/api/monitoring/servers/', {'name': 'member-node'}, format='json')
+        self.assertEqual(created_srv.status_code, 201)
+        srv_id = created_srv.data['id']
+
+        created_rule = c_member_a.post(
+            '/api/monitoring/rules/',
+            {
+                'server': srv_id,
+                'metric_type': 'cpu',
+                'operator': 'gt',
+                'threshold_value': 85.0,
+                'notification_type': 'EMAIL',
+                'notification_target': 'ops@example.com',
+            },
+            format='json',
+        )
+        self.assertEqual(created_rule.status_code, 201)
+        self.assertEqual(c_admin_b.get(f"/api/monitoring/rules/{created_rule.data['id']}/").status_code, 404)
+
+        self.assertEqual(c_member_a.get('/api/monitoring/agent-keys/').status_code, 403)
+        self.assertEqual(c_member_a.get('/api/accounts/invites/').status_code, 403)
+        self.assertEqual(c_member_a.get('/api/accounts/members/').status_code, 403)
+
+        self.assertEqual(
+            c_owner_a.patch(
+                f'/api/accounts/members/{owner_a.id}/',
+                {'role': User.ROLE_ADMIN},
+                format='json',
+            ).status_code,
+            400,
+        )
+        self.assertEqual(
+            c_admin_a.post('/api/accounts/companies/', {'name': 'Unauthorized MSP'}, format='json').status_code,
+            403,
+        )
+        self.assertEqual(
+            c_super.post('/api/accounts/companies/', {'name': 'MSP Client C'}, format='json').status_code,
+            201,
+        )
