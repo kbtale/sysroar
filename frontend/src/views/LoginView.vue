@@ -1,6 +1,15 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { Activity, Eye, EyeOff } from 'lucide-vue-next'
+import { Button } from '@ui-sdk/vue/button'
+import { Field, FieldLabel } from '@ui-sdk/vue/field'
+import { Input } from '@ui-sdk/vue/input'
+import {
+  PasswordInput,
+  PasswordInputControl,
+  PasswordInputToggle,
+} from '@ui-sdk/vue/password-input'
 import { useAuthStore } from '../stores/auth'
 
 const router = useRouter()
@@ -14,138 +23,100 @@ const loading = ref(false)
 async function handleLogin() {
   loading.value = true
   error.value = ''
-  const success = await auth.login(username.value, password.value)
+  const success = await auth.login(username.value.trim(), password.value)
   loading.value = false
-  
   if (success) {
     router.push('/')
   } else {
-    error.value = 'Invalid username or password'
+    error.value = 'Invalid username or password, or account temporarily locked.'
   }
 }
 </script>
 
 <template>
-  <div class="login-container">
-    <div class="login-card">
-      <div class="logo">
-        <span class="roar">SYS</span>ROAR
+  <main id="main-content" class="auth-page">
+    <section class="auth-card card">
+      <div class="auth-brand" translate="no">
+        <Activity class="brand-icon" :size="24" aria-hidden="true" />
+        <span class="brand-accent">SYS</span><span>ROAR</span>
       </div>
-      <h1>Welcome Back</h1>
-      <p class="subtitle">Secure infrastructure monitoring</p>
-      
-      <form @submit.prevent="handleLogin">
-        <div class="form-group">
-          <label>Username</label>
-          <input v-model="username" type="text" placeholder="Enter username" required />
-        </div>
-        <div class="form-group">
-          <label>Password</label>
-          <input v-model="password" type="password" placeholder="Enter password" required />
-        </div>
-        
-        <p v-if="error" class="error-msg">{{ error }}</p>
-        
-        <button type="submit" :disabled="loading">
-          {{ loading ? 'Authenticating...' : 'Sign In' }}
-        </button>
+      <h1>Sign In</h1>
+      <p class="auth-sub">Self-hosted infrastructure monitoring for your fleet.</p>
+
+      <form class="auth-form" @submit.prevent="handleLogin">
+        <Field name="username">
+          <FieldLabel>Username</FieldLabel>
+          <Input
+            v-model="username"
+            autocomplete="username"
+            :spellcheck="false"
+            placeholder="admin…"
+            required
+          />
+        </Field>
+
+        <Field name="password">
+          <FieldLabel>Password</FieldLabel>
+          <PasswordInput v-model="password" auto-complete="current-password" required>
+            <PasswordInputControl placeholder="Enter password…" />
+            <PasswordInputToggle v-slot="{ state }" aria-label="Show password">
+              <EyeOff v-if="state.visible" :size="16" aria-hidden="true" />
+              <Eye v-else :size="16" aria-hidden="true" />
+            </PasswordInputToggle>
+          </PasswordInput>
+        </Field>
+
+        <p v-if="error" class="banner-error" role="alert">{{ error }}</p>
+
+        <Button type="submit" data-variant="solid" :disabled="loading">
+          {{ loading ? 'Signing In…' : 'Sign In' }}
+        </Button>
       </form>
-    </div>
-  </div>
+    </section>
+  </main>
 </template>
 
 <style scoped>
-.login-container {
-  display: flex;
-  justify-content: center;
+.auth-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+}
+
+.auth-card {
+  width: min(420px, 100%);
+  padding: 32px;
+}
+
+.auth-brand {
+  display: inline-flex;
   align-items: center;
-  height: 100vh;
-  background: radial-gradient(circle at top right, #1e293b, #0f172a);
-}
-
-.login-card {
-  background: rgba(30, 41, 59, 0.7);
-  backdrop-filter: blur(12px);
-  padding: 3rem;
-  border-radius: 1.5rem;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-  width: 100%;
-  max-width: 400px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  text-align: center;
-}
-
-.logo {
-  font-size: 2rem;
+  gap: 8px;
+  font-size: 1.25rem;
   font-weight: 800;
-  letter-spacing: -1px;
-  margin-bottom: 2rem;
+  margin-bottom: 20px;
 }
 
-.roar { color: #10b981; }
-
-h1 { margin: 0; font-size: 1.5rem; font-weight: 600; }
-.subtitle { color: #94a3b8; margin-top: 0.5rem; margin-bottom: 2.5rem; font-size: 0.875rem; }
-
-.form-group {
-  text-align: left;
-  margin-bottom: 1.5rem;
+.brand-icon,
+.brand-accent {
+  color: var(--accent);
 }
 
-label {
-  display: block;
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: #94a3b8;
-  margin-bottom: 0.5rem;
-  font-weight: 700;
+h1 {
+  font-size: 1.5rem;
+  margin-bottom: 6px;
 }
 
-input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 0.75rem 1rem;
-  background: #0f172a;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 0.75rem;
-  color: white;
-  font-size: 1rem;
-  transition: all 0.2s ease;
-}
-
-input:focus {
-  outline: none;
-  border-color: #10b981;
-  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
-}
-
-.error-msg {
-  color: #ef4444;
+.auth-sub {
+  margin: 0 0 24px;
+  color: var(--ink-muted);
   font-size: 0.875rem;
-  margin-bottom: 1.5rem;
 }
 
-button {
-  width: 100%;
-  padding: 0.75rem;
-  background: #10b981;
-  color: #0f172a;
-  border: none;
-  border-radius: 0.75rem;
-  font-weight: 700;
-  font-size: 1rem;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-button:hover:not(:disabled) {
-  background: #34d399;
-  transform: translateY(-1px);
-}
-
-button:disabled {
-  opacity: 0.7;
-  cursor: not-allowed;
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 </style>

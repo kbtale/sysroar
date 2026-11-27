@@ -1,16 +1,16 @@
 <script setup lang="ts">
-// Root component
+import { Toast, ToastDescription, ToastRegion, ToastTitle } from '@ui-sdk/vue/toast'
 </script>
 
 <template>
-  <router-view></router-view>
+  <a href="#main-content" class="skip-link">Skip to main content</a>
+  <router-view />
+  <ToastRegion side="bottom" align="end">
+    <Toast>
+      <div>
+        <ToastTitle />
+        <ToastDescription />
+      </div>
+    </Toast>
+  </ToastRegion>
 </template>
-
-<style>
-:root {
-  font-family: 'Inter', system-ui, Avenir, Helvetica, Arial, sans-serif;
-  background-color: #0f172a;
-  color: #f8fafc;
-}
-body { margin: 0; }
-</style>
