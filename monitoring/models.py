@@ -39,13 +39,21 @@ class NotificationChannel(TenantModel):
     CHANNEL_CHOICES = [
         ('EMAIL', 'Email'),
         ('WEBHOOK', 'Webhook'),
+        ('SLACK', 'Slack'),
+        ('DISCORD', 'Discord'),
+        ('TEAMS', 'Microsoft Teams'),
+        ('TELEGRAM', 'Telegram'),
+        ('PAGERDUTY', 'PagerDuty'),
+        ('OPSGENIE', 'Opsgenie'),
+        ('NTFY', 'ntfy'),
+        ('GOTIFY', 'Gotify'),
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=128)
     channel_type = models.CharField(max_length=16, choices=CHANNEL_CHOICES, default='EMAIL')
-    target = models.CharField(max_length=255)
-    webhook_secret = models.CharField(max_length=128, blank=True, default='')
+    target = models.CharField(max_length=512)
+    webhook_secret = models.CharField(max_length=255, blank=True, default='')
     is_default = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -88,10 +96,7 @@ class AlertRule(TenantModel):
         ('min', 'Minimum'),
     ]
 
-    NOTIFICATION_CHOICES = [
-        ('EMAIL', 'Email'),
-        ('WEBHOOK', 'Webhook'),
-    ]
+    NOTIFICATION_CHOICES = NotificationChannel.CHANNEL_CHOICES
 
     SCOPE_CHOICES = [
         ('server', 'Server'),
@@ -120,22 +125,22 @@ class AlertRule(TenantModel):
     is_active = models.BooleanField(default=True)
 
     notification_type = models.CharField(
-        max_length=10,
+        max_length=16,
         choices=NOTIFICATION_CHOICES,
         default='EMAIL',
     )
     notification_target = models.CharField(
-        max_length=255,
+        max_length=512,
         blank=True,
         null=True,
     )
-    webhook_secret = models.CharField(max_length=128, blank=True, default='')
+    webhook_secret = models.CharField(max_length=255, blank=True, default='')
 
     def save(self, *args, **kwargs):
         if self.channel_id is not None and self.channel is not None:
             self.notification_type = self.channel.channel_type
             self.notification_target = self.channel.target
-            if self.channel.channel_type == 'WEBHOOK' and self.channel.webhook_secret:
+            if self.channel.webhook_secret:
                 self.webhook_secret = self.channel.webhook_secret
         if self.notification_type == 'WEBHOOK' and not self.webhook_secret:
             self.webhook_secret = f'whsec_{secrets.token_urlsafe(32)}'

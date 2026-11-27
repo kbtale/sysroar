@@ -385,15 +385,84 @@ const channelDialogOpen = ref(false)
 const channelName = ref('')
 const channelType = ref<string | null>('WEBHOOK')
 const channelTarget = ref('')
+const channelSecret = ref('')
 const channelDefault = ref(false)
 const channelSaving = ref(false)
 const channelError = ref('')
 const testingChannelId = ref<string | null>(null)
 
+const CHANNEL_META: Record<
+  string,
+  { label: string; targetLabel: string; targetPlaceholder: string; secretLabel?: string; secretRequired?: boolean }
+> = {
+  WEBHOOK: {
+    label: 'Generic Webhook',
+    targetLabel: 'Webhook URL',
+    targetPlaceholder: 'https://hooks.example.com/sysroar',
+  },
+  EMAIL: {
+    label: 'Email',
+    targetLabel: 'Email Address',
+    targetPlaceholder: 'alerts@example.com',
+  },
+  SLACK: {
+    label: 'Slack',
+    targetLabel: 'Slack Incoming Webhook URL',
+    targetPlaceholder: 'https://hooks.slack.com/services/...',
+  },
+  DISCORD: {
+    label: 'Discord',
+    targetLabel: 'Discord Webhook URL',
+    targetPlaceholder: 'https://discord.com/api/webhooks/...',
+  },
+  TEAMS: {
+    label: 'Microsoft Teams',
+    targetLabel: 'Teams Webhook URL',
+    targetPlaceholder: 'https://outlook.office.com/webhook/...',
+  },
+  TELEGRAM: {
+    label: 'Telegram',
+    targetLabel: 'Chat ID',
+    targetPlaceholder: '-1001234567890',
+    secretLabel: 'Telegram Bot Token',
+    secretRequired: true,
+  },
+  PAGERDUTY: {
+    label: 'PagerDuty',
+    targetLabel: 'Events API URL (optional)',
+    targetPlaceholder: 'https://events.pagerduty.com/v2/enqueue',
+    secretLabel: 'Routing Key (Integration Key)',
+    secretRequired: true,
+  },
+  OPSGENIE: {
+    label: 'Opsgenie',
+    targetLabel: 'Alerts API URL (optional)',
+    targetPlaceholder: 'https://api.opsgenie.com/v2/alerts',
+    secretLabel: 'GenieKey API Key',
+    secretRequired: true,
+  },
+  NTFY: {
+    label: 'ntfy',
+    targetLabel: 'Topic URL',
+    targetPlaceholder: 'https://ntfy.sh/my-ops-alerts',
+    secretLabel: 'Bearer Token (optional)',
+  },
+  GOTIFY: {
+    label: 'Gotify',
+    targetLabel: 'Gotify Server URL',
+    targetPlaceholder: 'https://gotify.example.com',
+    secretLabel: 'Application Token',
+    secretRequired: true,
+  },
+}
+
+const activeChannelMeta = computed(() => CHANNEL_META[channelType.value || 'WEBHOOK'] || CHANNEL_META.WEBHOOK)
+
 function openCreateChannelDialog() {
   channelName.value = ''
   channelType.value = 'WEBHOOK'
   channelTarget.value = ''
+  channelSecret.value = ''
   channelDefault.value = false
   channelError.value = ''
   channelDialogOpen.value = true
@@ -403,14 +472,18 @@ async function handleCreateChannel() {
   channelError.value = ''
   channelSaving.value = true
   try {
+    const payload: Record<string, unknown> = {
+      name: channelName.value.trim(),
+      channel_type: channelType.value || 'WEBHOOK',
+      target: channelTarget.value.trim(),
+      is_default: channelDefault.value,
+    }
+    if (channelSecret.value.trim()) {
+      payload.webhook_secret = channelSecret.value.trim()
+    }
     const resp = await api.post<NotificationChannelRecord & { webhook_secret?: string }>(
       '/api/monitoring/channels/',
-      {
-        name: channelName.value.trim(),
-        channel_type: channelType.value || 'WEBHOOK',
-        target: channelTarget.value.trim(),
-        is_default: channelDefault.value,
-      },
+      payload,
     )
     queryClient.invalidateQueries({ queryKey: ['notification-channels'] })
     channelDialogOpen.value = false
@@ -1201,23 +1274,35 @@ function refreshCurrent() {
                 <ChevronDown :size="14" aria-hidden="true" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="WEBHOOK"><SelectItemText>Webhook</SelectItemText></SelectItem>
-                <SelectItem value="EMAIL"><SelectItemText>Email</SelectItemText></SelectItem>
+                <SelectItem v-for="(meta, key) in CHANNEL_META" :key="key" :value="key">
+                  <SelectItemText>{{ meta.label }}</SelectItemText>
+                </SelectItem>
               </SelectContent>
             </Select>
           </Field>
 
           <Field name="ch-target">
-            <FieldLabel>{{ channelType === 'WEBHOOK' ? 'Webhook URL' : 'Email Address' }}</FieldLabel>
+            <FieldLabel>{{ activeChannelMeta.targetLabel }}</FieldLabel>
             <Input
               v-model="channelTarget"
-              :type="channelType === 'WEBHOOK' ? 'url' : 'email'"
-              :placeholder="channelType === 'WEBHOOK' ? 'https://hooks.example.com/sysroar' : 'alerts@example.com'"
-              required
+              :type="channelType === 'EMAIL' ? 'email' : channelType === 'TELEGRAM' ? 'text' : 'url'"
+              :placeholder="activeChannelMeta.targetPlaceholder"
+              :required="channelType !== 'PAGERDUTY' && channelType !== 'OPSGENIE'"
             />
-            <FieldDescription v-if="channelType === 'WEBHOOK'">
-              Public HTTPS endpoint required. Private/loopback IP ranges are blocked.
+            <FieldDescription v-if="channelType !== 'EMAIL' && channelType !== 'TELEGRAM'">
+              Public HTTP/HTTPS endpoint required. Private, loopback, and metadata IP ranges are blocked.
             </FieldDescription>
+          </Field>
+
+          <Field v-if="activeChannelMeta.secretLabel" name="ch-secret">
+            <FieldLabel>{{ activeChannelMeta.secretLabel }}</FieldLabel>
+            <Input
+              v-model="channelSecret"
+              type="password"
+              autocomplete="off"
+              :required="Boolean(activeChannelMeta.secretRequired)"
+            />
+            <FieldDescription>Stored write-only on the server and never returned in API responses.</FieldDescription>
           </Field>
 
           <label class="switch-row">

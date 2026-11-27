@@ -1506,7 +1506,7 @@ components:
         notification_target:
           type: string
           nullable: true
-          maxLength: 255
+          maxLength: 512
         has_webhook_secret:
           type: boolean
           readOnly: true
@@ -1557,11 +1557,11 @@ components:
         notification_target:
           type: string
           nullable: true
-          maxLength: 255
+          maxLength: 512
         webhook_secret:
           type: string
           writeOnly: true
-          maxLength: 128
+          maxLength: 255
       required:
       - metric_type
       - threshold_value
@@ -1671,10 +1671,26 @@ components:
       enum:
       - EMAIL
       - WEBHOOK
+      - SLACK
+      - DISCORD
+      - TEAMS
+      - TELEGRAM
+      - PAGERDUTY
+      - OPSGENIE
+      - NTFY
+      - GOTIFY
       type: string
       description: |-
         * `EMAIL` - Email
         * `WEBHOOK` - Webhook
+        * `SLACK` - Slack
+        * `DISCORD` - Discord
+        * `TEAMS` - Microsoft Teams
+        * `TELEGRAM` - Telegram
+        * `PAGERDUTY` - PagerDuty
+        * `OPSGENIE` - Opsgenie
+        * `NTFY` - ntfy
+        * `GOTIFY` - Gotify
     Company:
       type: object
       properties:
@@ -2052,7 +2068,7 @@ components:
           $ref: '#/components/schemas/ChannelTypeEnum'
         target:
           type: string
-          maxLength: 255
+          maxLength: 512
         has_webhook_secret:
           type: boolean
           readOnly: true
@@ -2082,11 +2098,11 @@ components:
         target:
           type: string
           minLength: 1
-          maxLength: 255
+          maxLength: 512
         webhook_secret:
           type: string
           writeOnly: true
-          maxLength: 128
+          maxLength: 255
         is_default:
           type: boolean
         is_active:
@@ -2098,10 +2114,26 @@ components:
       enum:
       - EMAIL
       - WEBHOOK
+      - SLACK
+      - DISCORD
+      - TEAMS
+      - TELEGRAM
+      - PAGERDUTY
+      - OPSGENIE
+      - NTFY
+      - GOTIFY
       type: string
       description: |-
         * `EMAIL` - Email
         * `WEBHOOK` - Webhook
+        * `SLACK` - Slack
+        * `DISCORD` - Discord
+        * `TEAMS` - Microsoft Teams
+        * `TELEGRAM` - Telegram
+        * `PAGERDUTY` - PagerDuty
+        * `OPSGENIE` - Opsgenie
+        * `NTFY` - ntfy
+        * `GOTIFY` - Gotify
     OperatorEnum:
       enum:
       - gt
@@ -2408,11 +2440,11 @@ components:
         notification_target:
           type: string
           nullable: true
-          maxLength: 255
+          maxLength: 512
         webhook_secret:
           type: string
           writeOnly: true
-          maxLength: 128
+          maxLength: 255
     PatchedCompanyMemberRequest:
       type: object
       properties:
@@ -2446,11 +2478,11 @@ components:
         target:
           type: string
           minLength: 1
-          maxLength: 255
+          maxLength: 512
         webhook_secret:
           type: string
           writeOnly: true
-          maxLength: 128
+          maxLength: 255
         is_default:
           type: boolean
         is_active:

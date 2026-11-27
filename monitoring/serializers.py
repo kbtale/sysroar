@@ -3,6 +3,11 @@ from datetime import timedelta
 from django.utils import timezone
 from rest_framework import serializers
 from monitoring.heartbeat import compute_offline_threshold_seconds, get_live_heartbeats
+from telemetry.notifications.providers import (
+    DEFAULT_PROVIDER_URLS,
+    SECRET_REQUIRED_CHANNELS,
+    URL_BASED_CHANNELS,
+)
 from telemetry.notifications.ssrf import SSRFBlockedError, validate_webhook_url
 from .models import (
     AgentKey,
@@ -203,10 +208,16 @@ class NotificationChannelSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         channel_type = attrs.get('channel_type', getattr(self.instance, 'channel_type', 'EMAIL'))
-        target = attrs.get('target', getattr(self.instance, 'target', ''))
-        if channel_type == 'WEBHOOK':
+        target = (attrs.get('target', getattr(self.instance, 'target', '')) or '').strip()
+        if not target and channel_type in DEFAULT_PROVIDER_URLS:
+            target = DEFAULT_PROVIDER_URLS[channel_type]
+            attrs['target'] = target
+        secret = attrs.get('webhook_secret', getattr(self.instance, 'webhook_secret', ''))
+        if channel_type in SECRET_REQUIRED_CHANNELS and not (secret or '').strip():
+            raise serializers.ValidationError({'webhook_secret': f'{channel_type} requires a secret/API key.'})
+        if channel_type in URL_BASED_CHANNELS:
             try:
-                validate_webhook_url(target or '')
+                validate_webhook_url(target)
             except SSRFBlockedError as exc:
                 raise serializers.ValidationError({'target': str(exc)}) from exc
         return attrs
@@ -297,7 +308,7 @@ class AlertRuleSerializer(serializers.ModelSerializer):
                 'notification_target',
                 getattr(self.instance, 'notification_target', None),
             )
-        if notification_type == 'WEBHOOK':
+        if notification_type in URL_BASED_CHANNELS:
             try:
                 validate_webhook_url(notification_target or '')
             except SSRFBlockedError as exc:

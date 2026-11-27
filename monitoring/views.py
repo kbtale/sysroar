@@ -213,6 +213,8 @@ class NotificationChannelViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet
         import json
         import time
         import requests as http_requests
+        from telemetry.notifications.dispatcher import NotificationDispatcher
+        from telemetry.notifications.providers import _HttpProviderStrategy
         from telemetry.notifications.ssrf import SSRFBlockedError, send_safe_webhook_post
         from telemetry.notifications.webhook import compute_webhook_signature
 
@@ -232,6 +234,21 @@ class NotificationChannelViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet
                     {'delivered': False, 'error': 'Email delivery failed.'},
                     status=status.HTTP_502_BAD_GATEWAY,
                 )
+
+        strategy = NotificationDispatcher.STRATEGIES.get(channel.channel_type)
+        if isinstance(strategy, _HttpProviderStrategy):
+            try:
+                delivered, detail = strategy.send_raw_test(channel.target, channel.webhook_secret, channel.name)
+            except SSRFBlockedError as exc:
+                return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            except (http_requests.RequestException, ValueError):
+                return Response(
+                    {'delivered': False, 'error': f'{channel.channel_type} delivery failed.'},
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+            if delivered:
+                return Response({'delivered': True, 'detail': detail}, status=status.HTTP_200_OK)
+            return Response({'delivered': False, 'detail': detail}, status=status.HTTP_502_BAD_GATEWAY)
 
         ts = str(int(time.time()))
         raw_body = json.dumps(
