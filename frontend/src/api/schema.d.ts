@@ -870,9 +870,17 @@ export interface components {
         /**
          * @description * `EMAIL` - Email
          *     * `WEBHOOK` - Webhook
+         *     * `SLACK` - Slack
+         *     * `DISCORD` - Discord
+         *     * `TEAMS` - Microsoft Teams
+         *     * `TELEGRAM` - Telegram
+         *     * `PAGERDUTY` - PagerDuty
+         *     * `OPSGENIE` - Opsgenie
+         *     * `NTFY` - ntfy
+         *     * `GOTIFY` - Gotify
          * @enum {string}
          */
-        ChannelTypeEnum: "EMAIL" | "WEBHOOK";
+        ChannelTypeEnum: "EMAIL" | "WEBHOOK" | "SLACK" | "DISCORD" | "TEAMS" | "TELEGRAM" | "PAGERDUTY" | "OPSGENIE" | "NTFY" | "GOTIFY";
         Company: {
             /** Format: uuid */
             readonly id: string;
@@ -1040,9 +1048,17 @@ export interface components {
         /**
          * @description * `EMAIL` - Email
          *     * `WEBHOOK` - Webhook
+         *     * `SLACK` - Slack
+         *     * `DISCORD` - Discord
+         *     * `TEAMS` - Microsoft Teams
+         *     * `TELEGRAM` - Telegram
+         *     * `PAGERDUTY` - PagerDuty
+         *     * `OPSGENIE` - Opsgenie
+         *     * `NTFY` - ntfy
+         *     * `GOTIFY` - Gotify
          * @enum {string}
          */
-        NotificationTypeEnum: "EMAIL" | "WEBHOOK";
+        NotificationTypeEnum: "EMAIL" | "WEBHOOK" | "SLACK" | "DISCORD" | "TEAMS" | "TELEGRAM" | "PAGERDUTY" | "OPSGENIE" | "NTFY" | "GOTIFY";
         /**
          * @description * `gt` - >
          *     * `gte` - >=
