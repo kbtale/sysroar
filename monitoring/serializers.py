@@ -19,6 +19,8 @@ from .models import (
     IncidentComment,
     NotificationChannel,
     Server,
+    UptimeCheck,
+    UptimeCheckResult,
 )
 
 _TAG_RE = re.compile(r'^[a-z0-9][a-z0-9._-]{0,31}$')
@@ -341,6 +343,7 @@ class IncidentSerializer(serializers.ModelSerializer):
         fields = [
             'id',
             'server',
+            'uptime_check',
             'server_name',
             'rule',
             'title',
@@ -357,7 +360,123 @@ class IncidentSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_server_name(self, obj) -> str:
-        return obj.server.name if obj.server_id else ''
+        if obj.server_id:
+            return obj.server.name
+        if obj.uptime_check_id:
+            return obj.uptime_check.name
+        return ''
+
+
+class UptimeCheckResultSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UptimeCheckResult
+        fields = [
+            'id',
+            'status',
+            'latency_ms',
+            'status_code',
+            'ssl_expiry_days',
+            'error_message',
+            'checked_at',
+        ]
+        read_only_fields = fields
+
+
+class UptimeCheckSerializer(serializers.ModelSerializer):
+    channel = serializers.PrimaryKeyRelatedField(
+        queryset=NotificationChannel.unscoped.all(),
+        required=False,
+        allow_null=True,
+    )
+    uptime_24h_percent = serializers.SerializerMethodField()
+    recent_statuses = serializers.SerializerMethodField()
+
+    class Meta:
+        model = UptimeCheck
+        fields = [
+            'id',
+            'name',
+            'check_type',
+            'target',
+            'port',
+            'expected_status',
+            'expected_keyword',
+            'ssl_expiry_warning_days',
+            'interval_seconds',
+            'timeout_seconds',
+            'allow_private_targets',
+            'channel',
+            'tags',
+            'is_active',
+            'last_status',
+            'last_latency_ms',
+            'last_ssl_expiry_days',
+            'last_error',
+            'last_checked_at',
+            'consecutive_failures',
+            'uptime_24h_percent',
+            'recent_statuses',
+            'created_at',
+        ]
+        read_only_fields = [
+            'id',
+            'last_status',
+            'last_latency_ms',
+            'last_ssl_expiry_days',
+            'last_error',
+            'last_checked_at',
+            'consecutive_failures',
+            'uptime_24h_percent',
+            'recent_statuses',
+            'created_at',
+        ]
+
+    def validate_channel(self, value):
+        if value is None:
+            return None
+        company_id = getattr(getattr(self.context.get('request'), 'user', None), 'company_id', None)
+        if not company_id or value.company_id != company_id:
+            raise serializers.ValidationError('Channel does not exist or access denied.')
+        return value
+
+    def validate_interval_seconds(self, value):
+        if value < 30 or value > 3600:
+            raise serializers.ValidationError('Interval must be between 30 and 3600 seconds.')
+        return value
+
+    def validate_timeout_seconds(self, value):
+        if value < 1 or value > 60:
+            raise serializers.ValidationError('Timeout must be between 1 and 60 seconds.')
+        return value
+
+    def validate(self, attrs):
+        check_type = attrs.get('check_type', getattr(self.instance, 'check_type', 'http'))
+        target = (attrs.get('target', getattr(self.instance, 'target', '')) or '').strip()
+        allow_private = attrs.get(
+            'allow_private_targets',
+            getattr(self.instance, 'allow_private_targets', False),
+        )
+        if not target:
+            raise serializers.ValidationError({'target': 'Target is required.'})
+        if check_type == 'http' and not allow_private:
+            try:
+                validate_webhook_url(target)
+            except SSRFBlockedError as exc:
+                raise serializers.ValidationError({'target': str(exc)}) from exc
+        attrs['target'] = target
+        return attrs
+
+    def get_uptime_24h_percent(self, obj) -> float | None:
+        uptime_map = self.context.get('uptime_24h_map')
+        if uptime_map is not None:
+            return uptime_map.get(str(obj.id))
+        return None
+
+    def get_recent_statuses(self, obj) -> list[str]:
+        bars_map = self.context.get('recent_bars_map')
+        if bars_map is not None:
+            return bars_map.get(str(obj.id), [])
+        return []
 
 
 class AlertSilenceSerializer(serializers.ModelSerializer):

@@ -660,6 +660,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/monitoring/uptime-checks/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["monitoring_uptime_checks_list"];
+        put?: never;
+        post: operations["monitoring_uptime_checks_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/monitoring/uptime-checks/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["monitoring_uptime_checks_retrieve"];
+        put: operations["monitoring_uptime_checks_update"];
+        post?: never;
+        delete: operations["monitoring_uptime_checks_destroy"];
+        options?: never;
+        head?: never;
+        patch: operations["monitoring_uptime_checks_partial_update"];
+        trace?: never;
+    };
+    "/api/monitoring/uptime-checks/{id}/results/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["monitoring_uptime_checks_results_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/monitoring/uptime-checks/{id}/run/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["monitoring_uptime_checks_run_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/telemetry/config/": {
         parameters: {
             query?: never;
@@ -881,6 +945,15 @@ export interface components {
          * @enum {string}
          */
         ChannelTypeEnum: "EMAIL" | "WEBHOOK" | "SLACK" | "DISCORD" | "TEAMS" | "TELEGRAM" | "PAGERDUTY" | "OPSGENIE" | "NTFY" | "GOTIFY";
+        /**
+         * @description * `http` - HTTP / HTTPS
+         *     * `tcp` - TCP Port
+         *     * `ping` - Ping
+         *     * `dns` - DNS Lookup
+         *     * `ssl` - SSL Certificate
+         * @enum {string}
+         */
+        CheckTypeEnum: "http" | "tcp" | "ping" | "dns" | "ssl";
         Company: {
             /** Format: uuid */
             readonly id: string;
@@ -954,7 +1027,9 @@ export interface components {
             /** Format: uuid */
             readonly id: string;
             /** Format: uuid */
-            readonly server: string;
+            readonly server: string | null;
+            /** Format: uuid */
+            readonly uptime_check: string | null;
             readonly server_name: string;
             /** Format: uuid */
             readonly rule: string | null;
@@ -987,6 +1062,14 @@ export interface components {
             /** Format: date-time */
             readonly created_at: string;
         };
+        /**
+         * @description * `up` - Up
+         *     * `degraded` - Degraded
+         *     * `down` - Down
+         *     * `unknown` - Unknown
+         * @enum {string}
+         */
+        LastStatusEnum: "up" | "degraded" | "down" | "unknown";
         MetricHistoryPoint: {
             /** Format: date-time */
             timestamp: string;
@@ -1232,6 +1315,21 @@ export interface components {
             previous?: string | null;
             results: components["schemas"]["Server"][];
         };
+        PaginatedUptimeCheckList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["UptimeCheck"][];
+        };
         PatchedAlertRuleRequest: {
             /** Format: uuid */
             server?: string | null;
@@ -1286,6 +1384,22 @@ export interface components {
             telemetry_cadence?: number;
             log_level?: string;
             tags?: unknown;
+        };
+        PatchedUptimeCheckRequest: {
+            name?: string;
+            check_type?: components["schemas"]["CheckTypeEnum"];
+            target?: string;
+            port?: number | null;
+            expected_status?: number;
+            expected_keyword?: string;
+            ssl_expiry_warning_days?: number;
+            interval_seconds?: number;
+            timeout_seconds?: number;
+            allow_private_targets?: boolean;
+            /** Format: uuid */
+            channel?: string | null;
+            tags?: unknown;
+            is_active?: boolean;
         };
         /**
          * @description * `owner` - Owner
@@ -1369,6 +1483,53 @@ export interface components {
          * @enum {string}
          */
         StatusEnum: "open" | "acknowledged" | "resolved";
+        UptimeCheck: {
+            /** Format: uuid */
+            readonly id: string;
+            name: string;
+            check_type?: components["schemas"]["CheckTypeEnum"];
+            target: string;
+            port?: number | null;
+            expected_status?: number;
+            expected_keyword?: string;
+            ssl_expiry_warning_days?: number;
+            interval_seconds?: number;
+            timeout_seconds?: number;
+            allow_private_targets?: boolean;
+            /** Format: uuid */
+            channel?: string | null;
+            tags?: unknown;
+            is_active?: boolean;
+            readonly last_status: components["schemas"]["LastStatusEnum"];
+            /** Format: double */
+            readonly last_latency_ms: number | null;
+            readonly last_ssl_expiry_days: number | null;
+            readonly last_error: string;
+            /** Format: date-time */
+            readonly last_checked_at: string | null;
+            readonly consecutive_failures: number;
+            /** Format: double */
+            readonly uptime_24h_percent: number | null;
+            readonly recent_statuses: string[];
+            /** Format: date-time */
+            readonly created_at: string;
+        };
+        UptimeCheckRequest: {
+            name: string;
+            check_type?: components["schemas"]["CheckTypeEnum"];
+            target: string;
+            port?: number | null;
+            expected_status?: number;
+            expected_keyword?: string;
+            ssl_expiry_warning_days?: number;
+            interval_seconds?: number;
+            timeout_seconds?: number;
+            allow_private_targets?: boolean;
+            /** Format: uuid */
+            channel?: string | null;
+            tags?: unknown;
+            is_active?: boolean;
+        };
     };
     responses: never;
     parameters: never;
@@ -2776,6 +2937,194 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    monitoring_uptime_checks_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedUptimeCheckList"];
+                };
+            };
+        };
+    };
+    monitoring_uptime_checks_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UptimeCheckRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UptimeCheck"];
+                };
+            };
+        };
+    };
+    monitoring_uptime_checks_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A UUID string identifying this uptime check. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UptimeCheck"];
+                };
+            };
+        };
+    };
+    monitoring_uptime_checks_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A UUID string identifying this uptime check. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UptimeCheckRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UptimeCheck"];
+                };
+            };
+        };
+    };
+    monitoring_uptime_checks_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A UUID string identifying this uptime check. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    monitoring_uptime_checks_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A UUID string identifying this uptime check. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedUptimeCheckRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UptimeCheck"];
+                };
+            };
+        };
+    };
+    monitoring_uptime_checks_results_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A UUID string identifying this uptime check. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UptimeCheck"];
+                };
+            };
+        };
+    };
+    monitoring_uptime_checks_run_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A UUID string identifying this uptime check. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UptimeCheckRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UptimeCheck"];
+                };
             };
         };
     };

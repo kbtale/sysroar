@@ -5,6 +5,7 @@ import {
   Activity,
   Bell,
   ChevronDown,
+  Globe,
   LogOut,
   Menu as MenuIcon,
   Moon,
@@ -47,6 +48,7 @@ onUnmounted(() => {
 
 const navItems = [
   { to: '/', label: 'Fleet', icon: Server, match: (path: string) => path === '/' || path.startsWith('/servers/') },
+  { to: '/uptime', label: 'Uptime', icon: Globe, match: (path: string) => path.startsWith('/uptime') },
   { to: '/alerts', label: 'Alerts', icon: Bell, match: (path: string) => path.startsWith('/alerts') },
   { to: '/settings', label: 'Settings', icon: Settings, match: (path: string) => path.startsWith('/settings') },
 ]

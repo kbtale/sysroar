@@ -1314,6 +1314,196 @@ paths:
       responses:
         '204':
           description: No response body
+  /api/monitoring/uptime-checks/:
+    get:
+      operationId: monitoring_uptime_checks_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - monitoring
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedUptimeCheckList'
+          description: ''
+    post:
+      operationId: monitoring_uptime_checks_create
+      tags:
+      - monitoring
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UptimeCheckRequest'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UptimeCheck'
+          description: ''
+  /api/monitoring/uptime-checks/{id}/:
+    get:
+      operationId: monitoring_uptime_checks_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this uptime check.
+        required: true
+      tags:
+      - monitoring
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UptimeCheck'
+          description: ''
+    put:
+      operationId: monitoring_uptime_checks_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this uptime check.
+        required: true
+      tags:
+      - monitoring
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UptimeCheckRequest'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UptimeCheck'
+          description: ''
+    patch:
+      operationId: monitoring_uptime_checks_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this uptime check.
+        required: true
+      tags:
+      - monitoring
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedUptimeCheckRequest'
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UptimeCheck'
+          description: ''
+    delete:
+      operationId: monitoring_uptime_checks_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this uptime check.
+        required: true
+      tags:
+      - monitoring
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/monitoring/uptime-checks/{id}/results/:
+    get:
+      operationId: monitoring_uptime_checks_results_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this uptime check.
+        required: true
+      tags:
+      - monitoring
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UptimeCheck'
+          description: ''
+  /api/monitoring/uptime-checks/{id}/run/:
+    post:
+      operationId: monitoring_uptime_checks_run_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this uptime check.
+        required: true
+      tags:
+      - monitoring
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UptimeCheckRequest'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UptimeCheck'
+          description: ''
   /api/telemetry/config/:
     get:
       operationId: telemetry_config_retrieve
@@ -1691,6 +1881,20 @@ components:
         * `OPSGENIE` - Opsgenie
         * `NTFY` - ntfy
         * `GOTIFY` - Gotify
+    CheckTypeEnum:
+      enum:
+      - http
+      - tcp
+      - ping
+      - dns
+      - ssl
+      type: string
+      description: |-
+        * `http` - HTTP / HTTPS
+        * `tcp` - TCP Port
+        * `ping` - Ping
+        * `dns` - DNS Lookup
+        * `ssl` - SSL Certificate
     Company:
       type: object
       properties:
@@ -1868,6 +2072,12 @@ components:
           type: string
           format: uuid
           readOnly: true
+          nullable: true
+        uptime_check:
+          type: string
+          format: uuid
+          readOnly: true
+          nullable: true
         server_name:
           type: string
           readOnly: true
@@ -1936,6 +2146,7 @@ components:
       - status
       - title
       - trigger_value
+      - uptime_check
     IncidentComment:
       type: object
       properties:
@@ -1969,6 +2180,18 @@ components:
       - created_at
       - id
       - incident
+    LastStatusEnum:
+      enum:
+      - up
+      - degraded
+      - down
+      - unknown
+      type: string
+      description: |-
+        * `up` - Up
+        * `degraded` - Degraded
+        * `down` - Down
+        * `unknown` - Unknown
     MetricHistoryPoint:
       type: object
       properties:
@@ -2399,6 +2622,29 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Server'
+    PaginatedUptimeCheckList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/UptimeCheck'
     PatchedAlertRuleRequest:
       type: object
       properties:
@@ -2532,6 +2778,52 @@ components:
           minLength: 1
           maxLength: 20
         tags: {}
+    PatchedUptimeCheckRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+        check_type:
+          $ref: '#/components/schemas/CheckTypeEnum'
+        target:
+          type: string
+          minLength: 1
+          maxLength: 512
+        port:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          nullable: true
+        expected_status:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        expected_keyword:
+          type: string
+          maxLength: 255
+        ssl_expiry_warning_days:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        interval_seconds:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        timeout_seconds:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        allow_private_targets:
+          type: boolean
+        channel:
+          type: string
+          format: uuid
+          nullable: true
+        tags: {}
+        is_active:
+          type: boolean
     RoleEnum:
       enum:
       - owner
@@ -2736,6 +3028,154 @@ components:
         * `open` - Open
         * `acknowledged` - Acknowledged
         * `resolved` - Resolved
+    UptimeCheck:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          maxLength: 128
+        check_type:
+          $ref: '#/components/schemas/CheckTypeEnum'
+        target:
+          type: string
+          maxLength: 512
+        port:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          nullable: true
+        expected_status:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        expected_keyword:
+          type: string
+          maxLength: 255
+        ssl_expiry_warning_days:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        interval_seconds:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        timeout_seconds:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        allow_private_targets:
+          type: boolean
+        channel:
+          type: string
+          format: uuid
+          nullable: true
+        tags: {}
+        is_active:
+          type: boolean
+        last_status:
+          allOf:
+          - $ref: '#/components/schemas/LastStatusEnum'
+          readOnly: true
+        last_latency_ms:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+        last_ssl_expiry_days:
+          type: integer
+          readOnly: true
+          nullable: true
+        last_error:
+          type: string
+          readOnly: true
+        last_checked_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        consecutive_failures:
+          type: integer
+          readOnly: true
+        uptime_24h_percent:
+          type: number
+          format: double
+          nullable: true
+          readOnly: true
+        recent_statuses:
+          type: array
+          items:
+            type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - consecutive_failures
+      - created_at
+      - id
+      - last_checked_at
+      - last_error
+      - last_latency_ms
+      - last_ssl_expiry_days
+      - last_status
+      - name
+      - recent_statuses
+      - target
+      - uptime_24h_percent
+    UptimeCheckRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+        check_type:
+          $ref: '#/components/schemas/CheckTypeEnum'
+        target:
+          type: string
+          minLength: 1
+          maxLength: 512
+        port:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          nullable: true
+        expected_status:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        expected_keyword:
+          type: string
+          maxLength: 255
+        ssl_expiry_warning_days:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        interval_seconds:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        timeout_seconds:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        allow_private_targets:
+          type: boolean
+        channel:
+          type: string
+          format: uuid
+          nullable: true
+        tags: {}
+        is_active:
+          type: boolean
+      required:
+      - name
+      - target
   securitySchemes:
     agentKeyAuth:
       type: apiKey

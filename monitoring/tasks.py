@@ -412,3 +412,20 @@ def check_heartbeats():
     from monitoring.heartbeat import check_server_heartbeats
 
     return check_server_heartbeats()
+
+
+@shared_task(name='monitoring.run_due_uptime_checks', ignore_result=True)
+def run_due_uptime_checks():
+    from monitoring.models import UptimeCheck
+    from monitoring.uptime import execute_uptime_check
+
+    now = timezone.now()
+    executed = 0
+    for check_obj in UptimeCheck.unscoped.filter(is_active=True).select_related('channel'):
+        if check_obj.last_checked_at is not None:
+            elapsed = (now - check_obj.last_checked_at).total_seconds()
+            if elapsed < max(30, check_obj.interval_seconds or 60):
+                continue
+        execute_uptime_check(check_obj, now=now)
+        executed += 1
+    return {'executed': executed}

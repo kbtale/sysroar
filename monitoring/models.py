@@ -391,6 +391,79 @@ class AuditLog(TenantModel):
         return f'{self.actor_username} {self.action} {self.resource_type}:{self.resource_id}'
 
 
+class UptimeCheck(TenantModel):
+    CHECK_TYPE_CHOICES = [
+        ('http', 'HTTP / HTTPS'),
+        ('tcp', 'TCP Port'),
+        ('ping', 'Ping'),
+        ('dns', 'DNS Lookup'),
+        ('ssl', 'SSL Certificate'),
+    ]
+
+    STATUS_CHOICES = [
+        ('up', 'Up'),
+        ('degraded', 'Degraded'),
+        ('down', 'Down'),
+        ('unknown', 'Unknown'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=128)
+    check_type = models.CharField(max_length=16, choices=CHECK_TYPE_CHOICES, default='http')
+    target = models.CharField(max_length=512)
+    port = models.PositiveIntegerField(null=True, blank=True)
+    expected_status = models.PositiveIntegerField(default=200)
+    expected_keyword = models.CharField(max_length=255, blank=True, default='')
+    ssl_expiry_warning_days = models.PositiveIntegerField(default=14)
+    interval_seconds = models.PositiveIntegerField(default=60)
+    timeout_seconds = models.PositiveIntegerField(default=10)
+    allow_private_targets = models.BooleanField(default=False)
+    tags = models.JSONField(default=list, blank=True)
+    channel = models.ForeignKey(
+        NotificationChannel,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='uptime_checks',
+    )
+    is_active = models.BooleanField(default=True, db_index=True)
+    last_status = models.CharField(max_length=16, choices=STATUS_CHOICES, default='unknown')
+    last_latency_ms = models.FloatField(null=True, blank=True)
+    last_ssl_expiry_days = models.IntegerField(null=True, blank=True)
+    last_error = models.CharField(max_length=512, blank=True, default='')
+    last_checked_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    consecutive_failures = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f'{self.name} ({self.check_type}:{self.target})'
+
+
+class UptimeCheckResult(TenantModel):
+    STATUS_CHOICES = [
+        ('up', 'Up'),
+        ('degraded', 'Degraded'),
+        ('down', 'Down'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    check_obj = models.ForeignKey(UptimeCheck, on_delete=models.CASCADE, related_name='results')
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES)
+    latency_ms = models.FloatField(null=True, blank=True)
+    status_code = models.PositiveIntegerField(null=True, blank=True)
+    ssl_expiry_days = models.IntegerField(null=True, blank=True)
+    error_message = models.CharField(max_length=512, blank=True, default='')
+    checked_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['company', 'check_obj', '-checked_at'], name='monitoring_u_co_chk_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.check_obj_id} {self.status} @ {self.checked_at}'
+
+
 class Incident(TenantModel):
     STATUS_CHOICES = [
         ('open', 'Open'),
@@ -404,7 +477,14 @@ class Incident(TenantModel):
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    server = models.ForeignKey(Server, on_delete=models.CASCADE, related_name='incidents')
+    server = models.ForeignKey(Server, on_delete=models.CASCADE, null=True, blank=True, related_name='incidents')
+    uptime_check = models.ForeignKey(
+        UptimeCheck,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='incidents',
+    )
     rule = models.ForeignKey(AlertRule, on_delete=models.SET_NULL, null=True, blank=True, related_name='incidents')
     title = models.CharField(max_length=255)
     severity = models.CharField(max_length=16, choices=SEVERITY_CHOICES, default='warning', db_index=True)

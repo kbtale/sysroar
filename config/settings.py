@@ -245,6 +245,10 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'monitoring.check_heartbeats',
         'schedule': 30.0,
     },
+    'run-uptime-checks-every-30s': {
+        'task': 'monitoring.run_due_uptime_checks',
+        'schedule': 30.0,
+    },
     'check-system-health-15m': {
         'task': 'monitoring.check_system_health',
         'schedule': crontab(minute='*/15'),
