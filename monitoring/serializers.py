@@ -3,7 +3,7 @@ from django.utils import timezone
 from rest_framework import serializers
 from monitoring.heartbeat import compute_offline_threshold_seconds, get_live_heartbeats
 from telemetry.notifications.ssrf import SSRFBlockedError, validate_webhook_url
-from .models import AgentKey, AlertRule, EnrollmentToken, Server
+from .models import AgentKey, AlertRule, AuditLog, EnrollmentToken, Server
 
 
 class ServerSerializer(serializers.ModelSerializer):
@@ -165,3 +165,21 @@ class AlertRuleSerializer(serializers.ModelSerializer):
             except SSRFBlockedError as exc:
                 raise serializers.ValidationError({'notification_target': str(exc)}) from exc
         return attrs
+
+
+class AuditLogSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AuditLog
+        fields = [
+            'id',
+            'actor',
+            'actor_username',
+            'action',
+            'resource_type',
+            'resource_id',
+            'metadata',
+            'ip_address',
+            'correlation_id',
+            'created_at',
+        ]
+        read_only_fields = fields
