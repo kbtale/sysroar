@@ -27,11 +27,36 @@ class Server(TenantModel):
     is_active = models.BooleanField(default=True)
     telemetry_cadence = models.PositiveIntegerField(default=30)
     log_level = models.CharField(max_length=20, default='INFO')
+    tags = models.JSONField(default=list, blank=True)
     last_ping = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return f'{self.name} ({self.ip_address})'
+
+
+class NotificationChannel(TenantModel):
+    CHANNEL_CHOICES = [
+        ('EMAIL', 'Email'),
+        ('WEBHOOK', 'Webhook'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=128)
+    channel_type = models.CharField(max_length=16, choices=CHANNEL_CHOICES, default='EMAIL')
+    target = models.CharField(max_length=255)
+    webhook_secret = models.CharField(max_length=128, blank=True, default='')
+    is_default = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        if self.channel_type == 'WEBHOOK' and not self.webhook_secret:
+            self.webhook_secret = f'whsec_{secrets.token_urlsafe(32)}'
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f'{self.name} ({self.channel_type})'
 
 
 class AlertRule(TenantModel):
@@ -68,8 +93,23 @@ class AlertRule(TenantModel):
         ('WEBHOOK', 'Webhook'),
     ]
 
+    SCOPE_CHOICES = [
+        ('server', 'Server'),
+        ('tag', 'Tag'),
+        ('all', 'All Servers'),
+    ]
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    server = models.ForeignKey(Server, on_delete=models.CASCADE, related_name='alert_rules')
+    server = models.ForeignKey(Server, on_delete=models.CASCADE, related_name='alert_rules', null=True, blank=True)
+    scope = models.CharField(max_length=16, choices=SCOPE_CHOICES, default='server')
+    tag_filter = models.CharField(max_length=64, blank=True, default='')
+    channel = models.ForeignKey(
+        NotificationChannel,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='alert_rules',
+    )
     metric_type = models.CharField(max_length=16, choices=METRIC_CHOICES)
     operator = models.CharField(max_length=4, choices=OPERATOR_CHOICES, default='gt')
     severity = models.CharField(max_length=16, choices=SEVERITY_CHOICES, default='warning')
@@ -92,14 +132,25 @@ class AlertRule(TenantModel):
     webhook_secret = models.CharField(max_length=128, blank=True, default='')
 
     def save(self, *args, **kwargs):
+        if self.channel_id is not None and self.channel is not None:
+            self.notification_type = self.channel.channel_type
+            self.notification_target = self.channel.target
+            if self.channel.channel_type == 'WEBHOOK' and self.channel.webhook_secret:
+                self.webhook_secret = self.channel.webhook_secret
         if self.notification_type == 'WEBHOOK' and not self.webhook_secret:
             self.webhook_secret = f'whsec_{secrets.token_urlsafe(32)}'
         super().save(*args, **kwargs)
 
     def __str__(self):
+        if self.server_id:
+            target_label = self.server.name
+        elif self.scope == 'tag':
+            target_label = f'tag:{self.tag_filter}'
+        else:
+            target_label = 'all'
         return (
             f'[{self.severity.upper()}] {self.get_metric_type_display()} '
-            f'{self.get_operator_display()} {self.threshold_value} on {self.server.name}'
+            f'{self.get_operator_display()} {self.threshold_value} on {target_label}'
         )
 
 
@@ -333,3 +384,99 @@ class AuditLog(TenantModel):
 
     def __str__(self):
         return f'{self.actor_username} {self.action} {self.resource_type}:{self.resource_id}'
+
+
+class Incident(TenantModel):
+    STATUS_CHOICES = [
+        ('open', 'Open'),
+        ('acknowledged', 'Acknowledged'),
+        ('resolved', 'Resolved'),
+    ]
+
+    SEVERITY_CHOICES = [
+        ('warning', 'Warning'),
+        ('critical', 'Critical'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    server = models.ForeignKey(Server, on_delete=models.CASCADE, related_name='incidents')
+    rule = models.ForeignKey(AlertRule, on_delete=models.SET_NULL, null=True, blank=True, related_name='incidents')
+    title = models.CharField(max_length=255)
+    severity = models.CharField(max_length=16, choices=SEVERITY_CHOICES, default='warning', db_index=True)
+    status = models.CharField(max_length=16, choices=STATUS_CHOICES, default='open', db_index=True)
+    trigger_value = models.FloatField(null=True, blank=True)
+    opened_at = models.DateTimeField(default=timezone.now, db_index=True)
+    acknowledged_at = models.DateTimeField(null=True, blank=True)
+    acknowledged_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='acknowledged_incidents',
+    )
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    resolved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='resolved_incidents',
+    )
+
+    class Meta:
+        ordering = ['-opened_at']
+        indexes = [
+            models.Index(fields=['company', 'status', '-opened_at']),
+        ]
+
+    def __str__(self):
+        return f'[{self.severity.upper()}] {self.title} ({self.status})'
+
+
+class IncidentComment(TenantModel):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    incident = models.ForeignKey(Incident, on_delete=models.CASCADE, related_name='comments')
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='incident_comments',
+    )
+    author_username = models.CharField(max_length=150, blank=True, default='')
+    body = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+
+
+class AlertSilence(TenantModel):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    rule = models.ForeignKey(AlertRule, on_delete=models.CASCADE, null=True, blank=True, related_name='silences')
+    server = models.ForeignKey(Server, on_delete=models.CASCADE, null=True, blank=True, related_name='silences')
+    reason = models.CharField(max_length=255, blank=True, default='')
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='created_silences',
+    )
+    starts_at = models.DateTimeField(default=timezone.now)
+    ends_at = models.DateTimeField(db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-ends_at']
+
+    @classmethod
+    def is_silenced(cls, company_id, server_id=None, rule_id=None, now=None) -> bool:
+        now = now or timezone.now()
+        active = cls.unscoped.filter(company_id=company_id, starts_at__lte=now, ends_at__gt=now)
+        for silence in active.only('server_id', 'rule_id'):
+            server_match = silence.server_id is None or (server_id is not None and silence.server_id == server_id)
+            rule_match = silence.rule_id is None or (rule_id is not None and silence.rule_id == rule_id)
+            if server_match and rule_match:
+                return True
+        return False

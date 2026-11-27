@@ -1,5 +1,6 @@
 from django.urls import path
 from .views import (
+    ServerMetricsHistoryView,
     TelemetryBatchIngestView,
     TelemetryConfigView,
     TelemetryEnrollView,
@@ -13,4 +14,5 @@ urlpatterns = [
     path('ingest/batch/', TelemetryBatchIngestView.as_view(), name='telemetry-ingest-batch'),
     path('inventory/', TelemetryInventoryView.as_view(), name='telemetry-inventory'),
     path('config/', TelemetryConfigView.as_view(), name='telemetry-config'),
+    path('servers/<uuid:server_id>/metrics/', ServerMetricsHistoryView.as_view(), name='server-metrics-history'),
 ]

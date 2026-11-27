@@ -10,7 +10,16 @@ from django.utils import timezone
 from telemetry.models import MetricLog
 from telemetry.notifications.dispatcher import NotificationDispatcher
 from .metrics import ALERT_EVAL_DURATION_SECONDS, NOTIFICATION_OUTBOX_FAILED_TOTAL
-from .models import AlertRule, AlertState, NotificationOutbox, Server, ServerAlertState, SystemEvent
+from .models import (
+    AlertRule,
+    AlertSilence,
+    AlertState,
+    Incident,
+    NotificationOutbox,
+    Server,
+    ServerAlertState,
+    SystemEvent,
+)
 from .state_machine import AlertStateMachine
 
 logger = logging.getLogger(__name__)
@@ -85,7 +94,43 @@ def evaluate_alert_rules(now=None, eval_interval_seconds: int = 30):
                         now=now,
                         eval_interval_seconds=eval_interval_seconds,
                     )
+                    if action == 'ALERT':
+                        open_incident = Incident.unscoped.filter(
+                            company_id=rule.company_id,
+                            server=rule.server,
+                            rule=rule,
+                            status__in=('open', 'acknowledged'),
+                        ).first()
+                        if open_incident is None:
+                            Incident.unscoped.create(
+                                company_id=rule.company_id,
+                                server=rule.server,
+                                rule=rule,
+                                title=(
+                                    f'{rule.server.name}: {rule.get_metric_type_display()} '
+                                    f'{rule.get_operator_display()} {rule.threshold_value}'
+                                ),
+                                severity=rule.severity,
+                                status='open',
+                                trigger_value=round(float(agg_value), 2),
+                                opened_at=now,
+                            )
+                    elif action == 'RESOLUTION':
+                        Incident.unscoped.filter(
+                            company_id=rule.company_id,
+                            server=rule.server,
+                            rule=rule,
+                            status__in=('open', 'acknowledged'),
+                        ).update(status='resolved', resolved_at=now)
+
                     if action in ('ALERT', 'RESOLUTION'):
+                        if action == 'ALERT' and AlertSilence.is_silenced(
+                            company_id=rule.company_id,
+                            server_id=rule.server_id,
+                            rule_id=rule.id,
+                            now=now,
+                        ):
+                            continue
                         outbox = NotificationOutbox.unscoped.create(
                             company_id=rule.company_id,
                             server=rule.server,

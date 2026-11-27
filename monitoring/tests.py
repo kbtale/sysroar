@@ -887,3 +887,144 @@ class WebhookSsrfAndHmacTests(TestCase):
                     {'value': 95.0, 'timestamp': timezone.now().isoformat()},
                 )
             )
+
+
+class Phase3MvpApiTests(TestCase):
+    def setUp(self):
+        user_model = get_user_model()
+        self.company_a = Company.objects.create(name='P3 Tenant A')
+        self.company_b = Company.objects.create(name='P3 Tenant B')
+        self.user_a = user_model.objects.create_user(
+            username='p3_user_a',
+            email='p3a@example.com',
+            password='VeryStrongPassword!99',
+            company=self.company_a,
+            role='admin',
+        )
+        self.user_b = user_model.objects.create_user(
+            username='p3_user_b',
+            email='p3b@example.com',
+            password='VeryStrongPassword!99',
+            company=self.company_b,
+            role='admin',
+        )
+        self.server_a = Server.unscoped.create(
+            name='p3-web-01',
+            company=self.company_a,
+            is_active=True,
+            tags=['prod', 'web'],
+        )
+        self.server_b = Server.unscoped.create(name='p3-web-b', company=self.company_b, is_active=True)
+        self.client_a = APIClient()
+        self.client_a.force_authenticate(user=self.user_a)
+        self.client_b = APIClient()
+        self.client_b.force_authenticate(user=self.user_b)
+
+    def test_metrics_history_ranges_and_cross_tenant_isolation(self):
+        now = timezone.now()
+        MetricLog.unscoped.create(
+            company=self.company_a,
+            server=self.server_a,
+            timestamp=now - timedelta(minutes=2),
+            cpu_usage=44.5,
+            ram_usage=61.2,
+            disk_usage=52.0,
+            load_1m=1.1,
+            uptime_seconds=3600,
+        )
+        for range_key in ('15m', '1h', '6h', '24h', '7d', '30d'):
+            resp = self.client_a.get(f'/api/telemetry/servers/{self.server_a.id}/metrics/?range={range_key}')
+            self.assertEqual(resp.status_code, 200)
+            self.assertEqual(resp.data['range'], range_key)
+            self.assertGreaterEqual(len(resp.data['points']), 1)
+
+        bad_range = self.client_a.get(f'/api/telemetry/servers/{self.server_a.id}/metrics/?range=99y')
+        self.assertEqual(bad_range.status_code, 400)
+
+        cross = self.client_b.get(f'/api/telemetry/servers/{self.server_a.id}/metrics/?range=1h')
+        self.assertEqual(cross.status_code, 404)
+
+    def test_channels_incidents_comments_silence_and_openapi_schema(self):
+        from .models import AlertSilence, Incident, NotificationOutbox
+        from .tasks import evaluate_alert_rules
+
+        ch = self.client_a.post(
+            '/api/monitoring/channels/',
+            {'name': 'Ops Email', 'channel_type': 'EMAIL', 'target': 'ops@example.com', 'is_default': True},
+            format='json',
+        )
+        self.assertEqual(ch.status_code, 201)
+        self.assertEqual(self.client_b.get(f"/api/monitoring/channels/{ch.data['id']}/").status_code, 404)
+
+        rule_resp = self.client_a.post(
+            '/api/monitoring/rules/',
+            {
+                'server': str(self.server_a.id),
+                'scope': 'server',
+                'channel': ch.data['id'],
+                'metric_type': 'cpu',
+                'operator': 'gt',
+                'severity': 'critical',
+                'threshold_value': 80.0,
+                'duration_minutes': 0,
+            },
+            format='json',
+        )
+        self.assertEqual(rule_resp.status_code, 201)
+
+        now = timezone.now()
+        MetricLog.unscoped.create(
+            company=self.company_a,
+            server=self.server_a,
+            timestamp=now,
+            cpu_usage=95.0,
+            ram_usage=50.0,
+        )
+        with patch('monitoring.tasks.deliver_notification_outbox.delay'):
+            evaluate_alert_rules(now=now)
+
+        incident = Incident.unscoped.filter(company=self.company_a, server=self.server_a).first()
+        self.assertIsNotNone(incident)
+        self.assertEqual(incident.status, 'open')
+        self.assertEqual(self.client_b.get(f'/api/monitoring/incidents/{incident.id}/').status_code, 404)
+
+        srv_list = self.client_a.get('/api/monitoring/servers/')
+        self.assertEqual(srv_list.status_code, 200)
+        srv_row = srv_list.data['results'][0]
+        self.assertEqual(srv_row['alert_status'], 'critical')
+        self.assertEqual(srv_row['tags'], ['prod', 'web'])
+        self.assertGreaterEqual(len(srv_row['sparkline']), 1)
+
+        ack = self.client_a.post(f'/api/monitoring/incidents/{incident.id}/acknowledge/')
+        self.assertEqual(ack.status_code, 200)
+        self.assertEqual(ack.data['status'], 'acknowledged')
+
+        cmt = self.client_a.post(
+            f'/api/monitoring/incidents/{incident.id}/comments/',
+            {'body': 'Investigating spike'},
+            format='json',
+        )
+        self.assertEqual(cmt.status_code, 201)
+
+        sil = self.client_a.post(
+            f'/api/monitoring/incidents/{incident.id}/silence/',
+            {'duration_minutes': 60, 'reason': 'Deploy window'},
+            format='json',
+        )
+        self.assertEqual(sil.status_code, 201)
+        self.assertTrue(
+            AlertSilence.is_silenced(
+                company_id=self.company_a.id,
+                server_id=self.server_a.id,
+                rule_id=incident.rule_id,
+            )
+        )
+        self.assertGreaterEqual(NotificationOutbox.unscoped.filter(company=self.company_a).count(), 1)
+
+        res = self.client_a.post(f'/api/monitoring/incidents/{incident.id}/resolve/')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data['status'], 'resolved')
+
+        schema_resp = self.client_a.get('/api/schema/')
+        self.assertEqual(schema_resp.status_code, 200)
+        self.assertIn('/api/monitoring/incidents/', schema_resp.content.decode('utf-8'))

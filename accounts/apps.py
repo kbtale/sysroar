@@ -8,3 +8,4 @@ class AccountsConfig(AppConfig):
 
     def ready(self):
         importlib.import_module('accounts.signals')
+        importlib.import_module('accounts.schema')

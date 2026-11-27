@@ -1,0 +1,2717 @@
+openapi: 3.0.3
+info:
+  title: SysRoar API
+  version: 0.3.0
+  description: Self-hosted, multi-tenant server monitoring API.
+paths:
+  /api/accounts/auth/csrf/:
+    get:
+      operationId: accounts_auth_csrf_retrieve
+      tags:
+      - accounts
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/accounts/auth/login/:
+    post:
+      operationId: accounts_auth_login_create
+      tags:
+      - accounts
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/accounts/auth/logout/:
+    post:
+      operationId: accounts_auth_logout_create
+      tags:
+      - accounts
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/accounts/auth/logout-all/:
+    post:
+      operationId: accounts_auth_logout_all_create
+      tags:
+      - accounts
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/accounts/auth/me/:
+    get:
+      operationId: accounts_auth_me_retrieve
+      tags:
+      - accounts
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/accounts/auth/register/:
+    post:
+      operationId: accounts_auth_register_create
+      tags:
+      - accounts
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/accounts/auth/ticket/:
+    post:
+      operationId: accounts_auth_ticket_create
+      tags:
+      - accounts
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/accounts/companies/:
+    get:
+      operationId: accounts_companies_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - accounts
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedCompanyList'
+          description: ''
+    post:
+      operationId: accounts_companies_create
+      tags:
+      - accounts
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompanyRequest'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Company'
+          description: ''
+  /api/accounts/companies/{id}/:
+    get:
+      operationId: accounts_companies_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - accounts
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Company'
+          description: ''
+    put:
+      operationId: accounts_companies_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - accounts
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompanyRequest'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Company'
+          description: ''
+    patch:
+      operationId: accounts_companies_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+        required: true
+      tags:
+      - accounts
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedCompanyRequest'
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Company'
+          description: ''
+  /api/accounts/invites/:
+    get:
+      operationId: accounts_invites_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - accounts
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedCompanyInviteList'
+          description: ''
+    post:
+      operationId: accounts_invites_create
+      tags:
+      - accounts
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompanyInvite'
+          description: ''
+  /api/accounts/invites/{id}/:
+    get:
+      operationId: accounts_invites_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this company invite.
+        required: true
+      tags:
+      - accounts
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompanyInvite'
+          description: ''
+    delete:
+      operationId: accounts_invites_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this company invite.
+        required: true
+      tags:
+      - accounts
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/accounts/invites/accept/:
+    post:
+      operationId: accounts_invites_accept_create
+      tags:
+      - accounts
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/accounts/members/:
+    get:
+      operationId: accounts_members_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - accounts
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedCompanyMemberList'
+          description: ''
+  /api/accounts/members/{id}/:
+    get:
+      operationId: accounts_members_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this user.
+        required: true
+      tags:
+      - accounts
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompanyMember'
+          description: ''
+    put:
+      operationId: accounts_members_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this user.
+        required: true
+      tags:
+      - accounts
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompanyMemberRequest'
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompanyMember'
+          description: ''
+    patch:
+      operationId: accounts_members_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this user.
+        required: true
+      tags:
+      - accounts
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedCompanyMemberRequest'
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompanyMember'
+          description: ''
+  /api/accounts/setup/:
+    post:
+      operationId: accounts_setup_create
+      tags:
+      - accounts
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/accounts/setup/status/:
+    get:
+      operationId: accounts_setup_status_retrieve
+      tags:
+      - accounts
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/monitoring/agent-keys/:
+    get:
+      operationId: monitoring_agent_keys_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - monitoring
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAgentKeyList'
+          description: ''
+    post:
+      operationId: monitoring_agent_keys_create
+      tags:
+      - monitoring
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentKey'
+          description: ''
+  /api/monitoring/agent-keys/{id}/:
+    get:
+      operationId: monitoring_agent_keys_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this agent key.
+        required: true
+      tags:
+      - monitoring
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentKey'
+          description: ''
+  /api/monitoring/agent-keys/{id}/revoke/:
+    post:
+      operationId: monitoring_agent_keys_revoke_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this agent key.
+        required: true
+      tags:
+      - monitoring
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentKey'
+          description: ''
+  /api/monitoring/agent-keys/rotate/:
+    post:
+      operationId: monitoring_agent_keys_rotate_create
+      tags:
+      - monitoring
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentKey'
+          description: ''
+  /api/monitoring/audit-logs/:
+    get:
+      operationId: monitoring_audit_logs_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - monitoring
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAuditLogList'
+          description: ''
+  /api/monitoring/audit-logs/{id}/:
+    get:
+      operationId: monitoring_audit_logs_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this audit log.
+        required: true
+      tags:
+      - monitoring
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditLog'
+          description: ''
+  /api/monitoring/channels/:
+    get:
+      operationId: monitoring_channels_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - monitoring
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedNotificationChannelList'
+          description: ''
+    post:
+      operationId: monitoring_channels_create
+      tags:
+      - monitoring
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationChannelRequest'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationChannel'
+          description: ''
+  /api/monitoring/channels/{id}/:
+    get:
+      operationId: monitoring_channels_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this notification channel.
+        required: true
+      tags:
+      - monitoring
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationChannel'
+          description: ''
+    put:
+      operationId: monitoring_channels_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this notification channel.
+        required: true
+      tags:
+      - monitoring
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationChannelRequest'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationChannel'
+          description: ''
+    patch:
+      operationId: monitoring_channels_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this notification channel.
+        required: true
+      tags:
+      - monitoring
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedNotificationChannelRequest'
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationChannel'
+          description: ''
+    delete:
+      operationId: monitoring_channels_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this notification channel.
+        required: true
+      tags:
+      - monitoring
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/monitoring/channels/{id}/test/:
+    post:
+      operationId: monitoring_channels_test_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this notification channel.
+        required: true
+      tags:
+      - monitoring
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationChannelRequest'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationChannel'
+          description: ''
+  /api/monitoring/enrollment-tokens/:
+    get:
+      operationId: monitoring_enrollment_tokens_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - monitoring
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedEnrollmentTokenList'
+          description: ''
+    post:
+      operationId: monitoring_enrollment_tokens_create
+      tags:
+      - monitoring
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentToken'
+          description: ''
+  /api/monitoring/enrollment-tokens/{id}/:
+    get:
+      operationId: monitoring_enrollment_tokens_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this enrollment token.
+        required: true
+      tags:
+      - monitoring
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentToken'
+          description: ''
+  /api/monitoring/enrollment-tokens/{id}/revoke/:
+    post:
+      operationId: monitoring_enrollment_tokens_revoke_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this enrollment token.
+        required: true
+      tags:
+      - monitoring
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentToken'
+          description: ''
+  /api/monitoring/incidents/:
+    get:
+      operationId: monitoring_incidents_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - monitoring
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedIncidentList'
+          description: ''
+  /api/monitoring/incidents/{id}/:
+    get:
+      operationId: monitoring_incidents_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this incident.
+        required: true
+      tags:
+      - monitoring
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Incident'
+          description: ''
+  /api/monitoring/incidents/{id}/acknowledge/:
+    post:
+      operationId: monitoring_incidents_acknowledge_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this incident.
+        required: true
+      tags:
+      - monitoring
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Incident'
+          description: ''
+  /api/monitoring/incidents/{id}/comments/:
+    post:
+      operationId: monitoring_incidents_comments_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this incident.
+        required: true
+      tags:
+      - monitoring
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Incident'
+          description: ''
+  /api/monitoring/incidents/{id}/resolve/:
+    post:
+      operationId: monitoring_incidents_resolve_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this incident.
+        required: true
+      tags:
+      - monitoring
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Incident'
+          description: ''
+  /api/monitoring/incidents/{id}/silence/:
+    post:
+      operationId: monitoring_incidents_silence_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this incident.
+        required: true
+      tags:
+      - monitoring
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Incident'
+          description: ''
+  /api/monitoring/rules/:
+    get:
+      operationId: monitoring_rules_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - monitoring
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAlertRuleList'
+          description: ''
+    post:
+      operationId: monitoring_rules_create
+      tags:
+      - monitoring
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlertRuleRequest'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertRule'
+          description: ''
+  /api/monitoring/rules/{id}/:
+    get:
+      operationId: monitoring_rules_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this alert rule.
+        required: true
+      tags:
+      - monitoring
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertRule'
+          description: ''
+    put:
+      operationId: monitoring_rules_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this alert rule.
+        required: true
+      tags:
+      - monitoring
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlertRuleRequest'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertRule'
+          description: ''
+    patch:
+      operationId: monitoring_rules_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this alert rule.
+        required: true
+      tags:
+      - monitoring
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedAlertRuleRequest'
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertRule'
+          description: ''
+    delete:
+      operationId: monitoring_rules_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this alert rule.
+        required: true
+      tags:
+      - monitoring
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/monitoring/rules/{id}/test-webhook/:
+    post:
+      operationId: monitoring_rules_test_webhook_create
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this alert rule.
+        required: true
+      tags:
+      - monitoring
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlertRuleRequest'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertRule'
+          description: ''
+  /api/monitoring/servers/:
+    get:
+      operationId: monitoring_servers_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - monitoring
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedServerList'
+          description: ''
+    post:
+      operationId: monitoring_servers_create
+      tags:
+      - monitoring
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServerRequest'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Server'
+          description: ''
+  /api/monitoring/servers/{id}/:
+    get:
+      operationId: monitoring_servers_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this server.
+        required: true
+      tags:
+      - monitoring
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Server'
+          description: ''
+    put:
+      operationId: monitoring_servers_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this server.
+        required: true
+      tags:
+      - monitoring
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServerRequest'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Server'
+          description: ''
+    patch:
+      operationId: monitoring_servers_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this server.
+        required: true
+      tags:
+      - monitoring
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedServerRequest'
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Server'
+          description: ''
+    delete:
+      operationId: monitoring_servers_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this server.
+        required: true
+      tags:
+      - monitoring
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/monitoring/silences/:
+    get:
+      operationId: monitoring_silences_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - monitoring
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAlertSilenceList'
+          description: ''
+    post:
+      operationId: monitoring_silences_create
+      tags:
+      - monitoring
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlertSilenceRequest'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertSilence'
+          description: ''
+  /api/monitoring/silences/{id}/:
+    get:
+      operationId: monitoring_silences_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this alert silence.
+        required: true
+      tags:
+      - monitoring
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertSilence'
+          description: ''
+    delete:
+      operationId: monitoring_silences_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this alert silence.
+        required: true
+      tags:
+      - monitoring
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/telemetry/config/:
+    get:
+      operationId: telemetry_config_retrieve
+      tags:
+      - telemetry
+      security:
+      - agentKeyAuth: []
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/telemetry/enroll/:
+    post:
+      operationId: telemetry_enroll_create
+      tags:
+      - telemetry
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
+  /api/telemetry/ingest/:
+    post:
+      operationId: telemetry_ingest_create
+      tags:
+      - telemetry
+      security:
+      - agentKeyAuth: []
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/telemetry/ingest/batch/:
+    post:
+      operationId: telemetry_ingest_batch_create
+      tags:
+      - telemetry
+      security:
+      - agentKeyAuth: []
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/telemetry/inventory/:
+    post:
+      operationId: telemetry_inventory_create
+      tags:
+      - telemetry
+      security:
+      - agentKeyAuth: []
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/telemetry/servers/{server_id}/metrics/:
+    get:
+      operationId: telemetry_servers_metrics_retrieve
+      parameters:
+      - in: query
+        name: range
+        schema:
+          type: string
+          enum:
+          - 15m
+          - 1h
+          - 24h
+          - 30d
+          - 6h
+          - 7d
+          default: 1h
+      - in: path
+        name: server_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - telemetry
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerMetricsHistoryResponse'
+          description: ''
+components:
+  schemas:
+    AgentKey:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        server:
+          type: string
+          format: uuid
+          readOnly: true
+        prefix:
+          type: string
+          readOnly: true
+        is_active:
+          type: boolean
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        last_used_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        revoked_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - created_at
+      - id
+      - is_active
+      - last_used_at
+      - prefix
+      - revoked_at
+      - server
+    AggregationEnum:
+      enum:
+      - avg
+      - max
+      - min
+      type: string
+      description: |-
+        * `avg` - Average
+        * `max` - Maximum
+        * `min` - Minimum
+    AlertRule:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        server:
+          type: string
+          format: uuid
+          nullable: true
+        server_name:
+          type: string
+          nullable: true
+          readOnly: true
+        scope:
+          $ref: '#/components/schemas/ScopeEnum'
+        tag_filter:
+          type: string
+          maxLength: 64
+        channel:
+          type: string
+          format: uuid
+          nullable: true
+        metric_type:
+          $ref: '#/components/schemas/MetricTypeEnum'
+        operator:
+          $ref: '#/components/schemas/OperatorEnum'
+        severity:
+          $ref: '#/components/schemas/SeverityEnum'
+        aggregation:
+          $ref: '#/components/schemas/AggregationEnum'
+        threshold_value:
+          type: number
+          format: double
+        hysteresis_margin:
+          type: number
+          format: double
+        duration_minutes:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        is_active:
+          type: boolean
+        notification_type:
+          $ref: '#/components/schemas/NotificationTypeEnum'
+        notification_target:
+          type: string
+          nullable: true
+          maxLength: 255
+        has_webhook_secret:
+          type: boolean
+          readOnly: true
+      required:
+      - has_webhook_secret
+      - id
+      - metric_type
+      - server_name
+      - threshold_value
+    AlertRuleRequest:
+      type: object
+      properties:
+        server:
+          type: string
+          format: uuid
+          nullable: true
+        scope:
+          $ref: '#/components/schemas/ScopeEnum'
+        tag_filter:
+          type: string
+          maxLength: 64
+        channel:
+          type: string
+          format: uuid
+          nullable: true
+        metric_type:
+          $ref: '#/components/schemas/MetricTypeEnum'
+        operator:
+          $ref: '#/components/schemas/OperatorEnum'
+        severity:
+          $ref: '#/components/schemas/SeverityEnum'
+        aggregation:
+          $ref: '#/components/schemas/AggregationEnum'
+        threshold_value:
+          type: number
+          format: double
+        hysteresis_margin:
+          type: number
+          format: double
+        duration_minutes:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        is_active:
+          type: boolean
+        notification_type:
+          $ref: '#/components/schemas/NotificationTypeEnum'
+        notification_target:
+          type: string
+          nullable: true
+          maxLength: 255
+        webhook_secret:
+          type: string
+          writeOnly: true
+          maxLength: 128
+      required:
+      - metric_type
+      - threshold_value
+    AlertSilence:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        rule:
+          type: string
+          format: uuid
+          nullable: true
+        server:
+          type: string
+          format: uuid
+          nullable: true
+        reason:
+          type: string
+          maxLength: 255
+        starts_at:
+          type: string
+          format: date-time
+        ends_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - ends_at
+      - id
+    AlertSilenceRequest:
+      type: object
+      properties:
+        rule:
+          type: string
+          format: uuid
+          nullable: true
+        server:
+          type: string
+          format: uuid
+          nullable: true
+        reason:
+          type: string
+          maxLength: 255
+        starts_at:
+          type: string
+          format: date-time
+        ends_at:
+          type: string
+          format: date-time
+      required:
+      - ends_at
+    AuditLog:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        actor:
+          type: string
+          format: uuid
+          readOnly: true
+          nullable: true
+        actor_username:
+          type: string
+          readOnly: true
+        action:
+          type: string
+          readOnly: true
+        resource_type:
+          type: string
+          readOnly: true
+        resource_id:
+          type: string
+          readOnly: true
+        metadata:
+          readOnly: true
+        ip_address:
+          type: string
+          readOnly: true
+          nullable: true
+        correlation_id:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - action
+      - actor
+      - actor_username
+      - correlation_id
+      - created_at
+      - id
+      - ip_address
+      - metadata
+      - resource_id
+      - resource_type
+    ChannelTypeEnum:
+      enum:
+      - EMAIL
+      - WEBHOOK
+      type: string
+      description: |-
+        * `EMAIL` - Email
+        * `WEBHOOK` - Webhook
+    Company:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          maxLength: 255
+        retention_days:
+          type: integer
+          maximum: 365
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - name
+    CompanyInvite:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        email:
+          type: string
+          format: email
+          readOnly: true
+        role:
+          allOf:
+          - $ref: '#/components/schemas/RoleEnum'
+          readOnly: true
+        prefix:
+          type: string
+          readOnly: true
+        expires_at:
+          type: string
+          format: date-time
+          readOnly: true
+        accepted_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        revoked_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - accepted_at
+      - created_at
+      - email
+      - expires_at
+      - id
+      - prefix
+      - revoked_at
+      - role
+    CompanyMember:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        username:
+          type: string
+          readOnly: true
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+        email:
+          type: string
+          format: email
+          readOnly: true
+          title: Email address
+        role:
+          $ref: '#/components/schemas/RoleEnum'
+        is_active:
+          type: boolean
+          title: Active
+          description: Designates whether this user should be treated as active. Unselect
+            this instead of deleting accounts.
+        date_joined:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - date_joined
+      - email
+      - id
+      - username
+    CompanyMemberRequest:
+      type: object
+      properties:
+        role:
+          $ref: '#/components/schemas/RoleEnum'
+        is_active:
+          type: boolean
+          title: Active
+          description: Designates whether this user should be treated as active. Unselect
+            this instead of deleting accounts.
+    CompanyRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        retention_days:
+          type: integer
+          maximum: 365
+          minimum: 1
+      required:
+      - name
+    EnrollmentToken:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+        prefix:
+          type: string
+          readOnly: true
+        max_uses:
+          type: integer
+          readOnly: true
+          nullable: true
+        uses_count:
+          type: integer
+          readOnly: true
+        expires_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        revoked_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - expires_at
+      - id
+      - max_uses
+      - name
+      - prefix
+      - revoked_at
+      - uses_count
+    Incident:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        server:
+          type: string
+          format: uuid
+          readOnly: true
+        server_name:
+          type: string
+          readOnly: true
+        rule:
+          type: string
+          format: uuid
+          readOnly: true
+          nullable: true
+        title:
+          type: string
+          readOnly: true
+        severity:
+          allOf:
+          - $ref: '#/components/schemas/SeverityEnum'
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/StatusEnum'
+          readOnly: true
+        trigger_value:
+          type: number
+          format: double
+          readOnly: true
+          nullable: true
+        opened_at:
+          type: string
+          format: date-time
+          readOnly: true
+        acknowledged_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        acknowledged_by:
+          type: string
+          format: uuid
+          readOnly: true
+          nullable: true
+        resolved_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        resolved_by:
+          type: string
+          format: uuid
+          readOnly: true
+          nullable: true
+        comments:
+          type: array
+          items:
+            $ref: '#/components/schemas/IncidentComment'
+          readOnly: true
+      required:
+      - acknowledged_at
+      - acknowledged_by
+      - comments
+      - id
+      - opened_at
+      - resolved_at
+      - resolved_by
+      - rule
+      - server
+      - server_name
+      - severity
+      - status
+      - title
+      - trigger_value
+    IncidentComment:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        incident:
+          type: string
+          format: uuid
+          readOnly: true
+        author:
+          type: string
+          format: uuid
+          readOnly: true
+          nullable: true
+        author_username:
+          type: string
+          readOnly: true
+        body:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - author
+      - author_username
+      - body
+      - created_at
+      - id
+      - incident
+    MetricHistoryPoint:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        cpu:
+          type: number
+          format: double
+          nullable: true
+        max_cpu:
+          type: number
+          format: double
+          nullable: true
+        ram:
+          type: number
+          format: double
+          nullable: true
+        max_ram:
+          type: number
+          format: double
+          nullable: true
+        swap:
+          type: number
+          format: double
+          nullable: true
+        disk:
+          type: number
+          format: double
+          nullable: true
+        disk_read_bps:
+          type: number
+          format: double
+          nullable: true
+        disk_write_bps:
+          type: number
+          format: double
+          nullable: true
+        net_rx_bps:
+          type: number
+          format: double
+          nullable: true
+        net_tx_bps:
+          type: number
+          format: double
+          nullable: true
+        load_1m:
+          type: number
+          format: double
+          nullable: true
+        uptime_seconds:
+          type: integer
+          nullable: true
+      required:
+      - cpu
+      - disk
+      - disk_read_bps
+      - disk_write_bps
+      - load_1m
+      - max_cpu
+      - max_ram
+      - net_rx_bps
+      - net_tx_bps
+      - ram
+      - swap
+      - timestamp
+      - uptime_seconds
+    MetricTypeEnum:
+      enum:
+      - cpu
+      - ram
+      - disk
+      - disk_io
+      - swap
+      - load
+      - no_data
+      type: string
+      description: |-
+        * `cpu` - CPU Usage (%)
+        * `ram` - RAM Usage (%)
+        * `disk` - Disk Usage (%)
+        * `disk_io` - Disk I/O (MB)
+        * `swap` - Swap Usage (%)
+        * `load` - Load Average (1m)
+        * `no_data` - Host Offline / No Data
+    NotificationChannel:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          maxLength: 128
+        channel_type:
+          $ref: '#/components/schemas/ChannelTypeEnum'
+        target:
+          type: string
+          maxLength: 255
+        has_webhook_secret:
+          type: boolean
+          readOnly: true
+        is_default:
+          type: boolean
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - has_webhook_secret
+      - id
+      - name
+      - target
+    NotificationChannelRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+        channel_type:
+          $ref: '#/components/schemas/ChannelTypeEnum'
+        target:
+          type: string
+          minLength: 1
+          maxLength: 255
+        webhook_secret:
+          type: string
+          writeOnly: true
+          maxLength: 128
+        is_default:
+          type: boolean
+        is_active:
+          type: boolean
+      required:
+      - name
+      - target
+    NotificationTypeEnum:
+      enum:
+      - EMAIL
+      - WEBHOOK
+      type: string
+      description: |-
+        * `EMAIL` - Email
+        * `WEBHOOK` - Webhook
+    OperatorEnum:
+      enum:
+      - gt
+      - gte
+      - lt
+      - lte
+      type: string
+      description: |-
+        * `gt` - >
+        * `gte` - >=
+        * `lt` - <
+        * `lte` - <=
+    PaginatedAgentKeyList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentKey'
+    PaginatedAlertRuleList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AlertRule'
+    PaginatedAlertSilenceList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AlertSilence'
+    PaginatedAuditLogList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditLog'
+    PaginatedCompanyInviteList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/CompanyInvite'
+    PaginatedCompanyList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Company'
+    PaginatedCompanyMemberList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/CompanyMember'
+    PaginatedEnrollmentTokenList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/EnrollmentToken'
+    PaginatedIncidentList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Incident'
+    PaginatedNotificationChannelList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/NotificationChannel'
+    PaginatedServerList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Server'
+    PatchedAlertRuleRequest:
+      type: object
+      properties:
+        server:
+          type: string
+          format: uuid
+          nullable: true
+        scope:
+          $ref: '#/components/schemas/ScopeEnum'
+        tag_filter:
+          type: string
+          maxLength: 64
+        channel:
+          type: string
+          format: uuid
+          nullable: true
+        metric_type:
+          $ref: '#/components/schemas/MetricTypeEnum'
+        operator:
+          $ref: '#/components/schemas/OperatorEnum'
+        severity:
+          $ref: '#/components/schemas/SeverityEnum'
+        aggregation:
+          $ref: '#/components/schemas/AggregationEnum'
+        threshold_value:
+          type: number
+          format: double
+        hysteresis_margin:
+          type: number
+          format: double
+        duration_minutes:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        is_active:
+          type: boolean
+        notification_type:
+          $ref: '#/components/schemas/NotificationTypeEnum'
+        notification_target:
+          type: string
+          nullable: true
+          maxLength: 255
+        webhook_secret:
+          type: string
+          writeOnly: true
+          maxLength: 128
+    PatchedCompanyMemberRequest:
+      type: object
+      properties:
+        role:
+          $ref: '#/components/schemas/RoleEnum'
+        is_active:
+          type: boolean
+          title: Active
+          description: Designates whether this user should be treated as active. Unselect
+            this instead of deleting accounts.
+    PatchedCompanyRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        retention_days:
+          type: integer
+          maximum: 365
+          minimum: 1
+    PatchedNotificationChannelRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+        channel_type:
+          $ref: '#/components/schemas/ChannelTypeEnum'
+        target:
+          type: string
+          minLength: 1
+          maxLength: 255
+        webhook_secret:
+          type: string
+          writeOnly: true
+          maxLength: 128
+        is_default:
+          type: boolean
+        is_active:
+          type: boolean
+    PatchedServerRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        hostname:
+          type: string
+          nullable: true
+          maxLength: 255
+        kernel:
+          type: string
+          nullable: true
+          maxLength: 255
+        cpu_model:
+          type: string
+          nullable: true
+          maxLength: 255
+        cpu_cores:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          nullable: true
+        total_ram_bytes:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: -9223372036854775808
+          format: int64
+          nullable: true
+        agent_version:
+          type: string
+          nullable: true
+          maxLength: 64
+        is_active:
+          type: boolean
+        telemetry_cadence:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        log_level:
+          type: string
+          minLength: 1
+          maxLength: 20
+        tags: {}
+    RoleEnum:
+      enum:
+      - owner
+      - admin
+      - member
+      - viewer
+      type: string
+      description: |-
+        * `owner` - Owner
+        * `admin` - Admin
+        * `member` - Member
+        * `viewer` - Viewer
+    ScopeEnum:
+      enum:
+      - server
+      - tag
+      - all
+      type: string
+      description: |-
+        * `server` - Server
+        * `tag` - Tag
+        * `all` - All Servers
+    Server:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          maxLength: 255
+        hostname:
+          type: string
+          nullable: true
+          maxLength: 255
+        ip_address:
+          type: string
+          nullable: true
+          readOnly: true
+        os_info:
+          type: string
+          nullable: true
+          readOnly: true
+        kernel:
+          type: string
+          nullable: true
+          maxLength: 255
+        cpu_model:
+          type: string
+          nullable: true
+          maxLength: 255
+        cpu_cores:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          nullable: true
+        total_ram_bytes:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: -9223372036854775808
+          format: int64
+          nullable: true
+        agent_version:
+          type: string
+          nullable: true
+          maxLength: 64
+        is_active:
+          type: boolean
+        telemetry_cadence:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        log_level:
+          type: string
+          maxLength: 20
+        tags: {}
+        last_seen:
+          type: string
+          nullable: true
+          readOnly: true
+        status:
+          type: string
+          readOnly: true
+        alert_status:
+          type: string
+          readOnly: true
+        sparkline:
+          type: array
+          items:
+            type: object
+            additionalProperties: {}
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - alert_status
+      - created_at
+      - id
+      - ip_address
+      - last_seen
+      - name
+      - os_info
+      - sparkline
+      - status
+    ServerMetricsHistoryResponse:
+      type: object
+      properties:
+        server_id:
+          type: string
+          format: uuid
+        range:
+          type: string
+        bucket:
+          type: string
+        start:
+          type: string
+          format: date-time
+        end:
+          type: string
+          format: date-time
+        points:
+          type: array
+          items:
+            $ref: '#/components/schemas/MetricHistoryPoint'
+      required:
+      - bucket
+      - end
+      - points
+      - range
+      - server_id
+      - start
+    ServerRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        hostname:
+          type: string
+          nullable: true
+          maxLength: 255
+        kernel:
+          type: string
+          nullable: true
+          maxLength: 255
+        cpu_model:
+          type: string
+          nullable: true
+          maxLength: 255
+        cpu_cores:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+          nullable: true
+        total_ram_bytes:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: -9223372036854775808
+          format: int64
+          nullable: true
+        agent_version:
+          type: string
+          nullable: true
+          maxLength: 64
+        is_active:
+          type: boolean
+        telemetry_cadence:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        log_level:
+          type: string
+          minLength: 1
+          maxLength: 20
+        tags: {}
+      required:
+      - name
+    SeverityEnum:
+      enum:
+      - warning
+      - critical
+      type: string
+      description: |-
+        * `warning` - Warning
+        * `critical` - Critical
+    StatusEnum:
+      enum:
+      - open
+      - acknowledged
+      - resolved
+      type: string
+      description: |-
+        * `open` - Open
+        * `acknowledged` - Acknowledged
+        * `resolved` - Resolved
+  securitySchemes:
+    agentKeyAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: 'Per-server agent key formatted as: AgentKey srk_<prefix>.<secret>'
+    cookieSessionAuth:
+      type: apiKey
+      in: cookie
+      name: sessionid
+      description: HttpOnly session cookie paired with X-CSRFToken header.
+    tokenAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: 'Token authentication formatted as: Token <key>'
