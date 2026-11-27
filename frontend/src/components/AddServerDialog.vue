@@ -80,6 +80,24 @@ const dockerCommand = computed(() => {
   ].join('\n')
 })
 
+const openIngestSnippet = computed(() => {
+  const base = apiBaseUrl.value
+  return [
+    `# OpenTelemetry Collector exporter`,
+    `exporters:`,
+    `  otlphttp/sysroar:`,
+    `    metrics_endpoint: "${base}/api/telemetry/otlp/v1/metrics"`,
+    `    headers:`,
+    `      Authorization: "AgentKey <YOUR_AGENT_KEY>"`,
+    ``,
+    `# Prometheus remote_write`,
+    `remote_write:`,
+    `  - url: "${base}/api/telemetry/prometheus/remote-write"`,
+    `    headers:`,
+    `      Authorization: "AgentKey <YOUR_AGENT_KEY>"`,
+  ].join('\n')
+})
+
 function stopPolling() {
   if (pollTimer !== null) {
     clearInterval(pollTimer)
@@ -324,6 +342,7 @@ function handleOpenChange(nextOpen: boolean) {
             <TabsTab value="linux">Linux</TabsTab>
             <TabsTab value="windows">Windows</TabsTab>
             <TabsTab value="docker">Docker</TabsTab>
+            <TabsTab value="open">OTLP / Prom</TabsTab>
           </TabsList>
 
           <TabsPanel value="linux" class="cmd-panel">
@@ -369,6 +388,21 @@ function handleOpenChange(nextOpen: boolean) {
               </Button>
             </div>
             <pre class="code-block"><code>{{ dockerCommand }}</code></pre>
+          </TabsPanel>
+
+          <TabsPanel value="open" class="cmd-panel">
+            <div class="cmd-bar">
+              <span class="cmd-hint">
+                <Terminal :size="14" aria-hidden="true" />
+                OTLP/HTTP &amp; Prometheus remote_write
+              </span>
+              <Button type="button" data-variant="ghost" @click="copyText(openIngestSnippet, 'open')">
+                <Check v-if="copiedTarget === 'open'" :size="14" aria-hidden="true" />
+                <Copy v-else :size="14" aria-hidden="true" />
+                <span>{{ copiedTarget === 'open' ? 'Copied' : 'Copy config' }}</span>
+              </Button>
+            </div>
+            <pre class="code-block"><code>{{ openIngestSnippet }}</code></pre>
           </TabsPanel>
         </Tabs>
 
