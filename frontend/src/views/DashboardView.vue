@@ -7,6 +7,7 @@ import {
   ArrowUpRight,
   ChevronDown,
   LayoutGrid,
+  Plus,
   RefreshCw,
   Search,
   Server as ServerIcon,
@@ -29,13 +30,17 @@ import {
   SelectValue,
 } from '@ui-sdk/vue/select'
 import { api, extractApiError, unwrapResults, type ServerRecord } from '../api/client'
+import { useAuthStore } from '../stores/auth'
 import { useTelemetryStore } from '../stores/telemetry'
+import AddServerDialog from '../components/AddServerDialog.vue'
 import MetricChart from '../components/MetricChart.vue'
 import { formatPercent, formatRelativeTime } from '../utils/format'
 
 const route = useRoute()
 const router = useRouter()
+const auth = useAuthStore()
 const telemetry = useTelemetryStore()
+const addServerOpen = ref(false)
 
 const searchQuery = ref(typeof route.query.q === 'string' ? route.query.q : '')
 const statusFilter = ref<string | null>(
@@ -239,8 +244,14 @@ function clearFilters() {
           <RefreshCw :size="15" aria-hidden="true" />
           <span>Refresh</span>
         </Button>
+        <Button v-if="auth.canWrite" type="button" variant="solid" @click="addServerOpen = true">
+          <Plus :size="15" aria-hidden="true" />
+          <span>Add Server</span>
+        </Button>
       </div>
     </header>
+
+    <AddServerDialog v-model:open="addServerOpen" />
 
     <div class="summary-strip" role="region" aria-label="Fleet health summary">
       <button
@@ -397,6 +408,10 @@ function clearFilters() {
       <ServerIcon :size="28" class="empty-icon" aria-hidden="true" />
       <h2>No servers monitored yet</h2>
       <p>Enroll your first Linux or Windows host with the SysRoar Rust agent to stream live telemetry.</p>
+      <Button v-if="auth.canWrite" type="button" variant="solid" @click="addServerOpen = true">
+        <Plus :size="15" aria-hidden="true" />
+        <span>Add Your First Server</span>
+      </Button>
     </div>
 
     <div v-else-if="filteredServers.length === 0" class="empty-state card">
