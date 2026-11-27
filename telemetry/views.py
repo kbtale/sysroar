@@ -21,6 +21,12 @@ from monitoring.heartbeat import record_heartbeat, record_heartbeats_batch
 from monitoring.metrics import INGEST_SAMPLES_TOTAL
 from monitoring.models import AgentKey, EnrollmentToken, Server
 from .ingestion import push_batch_to_stream, push_to_stream
+from .open_ingest import (
+    OpenIngestError,
+    parse_otlp_metrics_json,
+    parse_prometheus_remote_write,
+    resolve_open_ingest_server,
+)
 from .parsers import GzipJSONParser
 from .queries import RANGE_SPECS, query_server_metrics_range
 from .serializers import (
@@ -386,3 +392,88 @@ class ServerMetricsHistoryView(APIView):
 
         payload = query_server_metrics_range(company_id=company_id, server_id=server.id, range_key=range_key)
         return Response(payload, status=status.HTTP_200_OK)
+
+
+def _enqueue_open_samples(request, parsed_samples):
+    company_id = getattr(request.user, 'company_id', None)
+    if not company_id:
+        return None, Response({'detail': 'Tenant scope missing.'}, status=status.HTTP_403_FORBIDDEN)
+
+    now = timezone.now()
+    remote_ip = _extract_remote_ip(request)
+    payloads = []
+    heartbeats = {}
+
+    for sample in parsed_samples:
+        srv, err = resolve_open_ingest_server(request, company_id, sample.get('host_hint', ''))
+        if srv is None:
+            return None, Response({'detail': err}, status=status.HTTP_403_FORBIDDEN)
+        normalized = {
+            'server_id': srv.id,
+            'company_id': company_id,
+            'cpu_usage': sample['cpu_usage'],
+            'ram_usage': sample['ram_usage'],
+            'timestamp': sample.get('timestamp') or now,
+        }
+        for opt in (
+            'disk_usage',
+            'swap_usage',
+            'load_1m',
+            'net_rx_bps',
+            'net_tx_bps',
+            'disk_read_bps',
+            'disk_write_bps',
+        ):
+            if opt in sample:
+                normalized[opt] = sample[opt]
+        payloads.append(_build_stream_payload(normalized, now))
+        heartbeats[srv.id] = {
+            'server_id': srv.id,
+            'company_id': company_id,
+            'seen_at': now,
+            'ip_address': remote_ip,
+        }
+
+    if payloads:
+        push_batch_to_stream(payloads)
+        INGEST_SAMPLES_TOTAL.inc(len(payloads))
+        record_heartbeats_batch(list(heartbeats.values()))
+
+    return len(payloads), None
+
+
+class OtlpMetricsIngestView(APIView):
+    authentication_classes = _TELEMETRY_AUTH_CLASSES
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [ServerIngestRateThrottle]
+    parser_classes = [GzipJSONParser]
+
+    def post(self, request, *args, **kwargs):
+        try:
+            samples = parse_otlp_metrics_json(request.data)
+        except OpenIngestError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        accepted, error_response = _enqueue_open_samples(request, samples)
+        if error_response is not None:
+            return error_response
+        return Response({'partialSuccess': {}, 'accepted': accepted}, status=status.HTTP_200_OK)
+
+
+class PrometheusRemoteWriteView(APIView):
+    authentication_classes = _TELEMETRY_AUTH_CLASSES
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [ServerIngestRateThrottle]
+
+    def post(self, request, *args, **kwargs):
+        raw_body = request.body or b''
+        if not raw_body:
+            return Response({'detail': 'Empty remote-write payload.'}, status=status.HTTP_400_BAD_REQUEST)
+        encoding = request.headers.get('Content-Encoding', 'snappy')
+        try:
+            samples = parse_prometheus_remote_write(raw_body, content_encoding=encoding)
+        except OpenIngestError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        _, error_response = _enqueue_open_samples(request, samples)
+        if error_response is not None:
+            return error_response
+        return Response(status=status.HTTP_204_NO_CONTENT)
