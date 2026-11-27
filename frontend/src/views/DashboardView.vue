@@ -240,11 +240,11 @@ function clearFilters() {
       </div>
 
       <div class="header-actions">
-        <Button type="button" variant="ghost" :pending="isFetching && !isPending" @click="refetch()">
+        <Button type="button" data-variant="ghost" :pending="isFetching && !isPending" @click="refetch()">
           <RefreshCw :size="15" aria-hidden="true" />
           <span>Refresh</span>
         </Button>
-        <Button v-if="auth.canWrite" type="button" variant="solid" @click="addServerOpen = true">
+        <Button v-if="auth.canWrite" type="button" data-variant="solid" @click="addServerOpen = true">
           <Plus :size="15" aria-hidden="true" />
           <span>Add Server</span>
         </Button>
@@ -382,7 +382,7 @@ function clearFilters() {
           </SegmentedControlItem>
         </SegmentedControl>
 
-        <Button v-if="hasActiveFilters" type="button" variant="ghost" @click="clearFilters">
+        <Button v-if="hasActiveFilters" type="button" data-variant="ghost" @click="clearFilters">
           Reset
         </Button>
       </div>
@@ -408,7 +408,7 @@ function clearFilters() {
       <ServerIcon :size="28" class="empty-icon" aria-hidden="true" />
       <h2>No servers monitored yet</h2>
       <p>Enroll your first Linux or Windows host with the SysRoar Rust agent to stream live telemetry.</p>
-      <Button v-if="auth.canWrite" type="button" variant="solid" @click="addServerOpen = true">
+      <Button v-if="auth.canWrite" type="button" data-variant="solid" @click="addServerOpen = true">
         <Plus :size="15" aria-hidden="true" />
         <span>Add Your First Server</span>
       </Button>

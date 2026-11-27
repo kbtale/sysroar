@@ -437,7 +437,7 @@ async function copyText(val: string, key: string) {
             </Field>
 
             <div v-if="auth.isAdmin" class="actions-left">
-              <Button type="submit" variant="solid" :pending="savingCompany">Save Workspace</Button>
+              <Button type="submit" data-variant="solid" :pending="savingCompany">Save Workspace</Button>
             </div>
           </form>
         </div>
@@ -449,7 +449,7 @@ async function copyText(val: string, key: string) {
             <h2>Workspace Members</h2>
             <p class="muted">Manage roles and access for operators in {{ currentCompany?.name }}.</p>
           </div>
-          <Button type="button" variant="solid" @click="openInviteDialog()">
+          <Button type="button" data-variant="solid" @click="openInviteDialog()">
             <UserPlus :size="15" aria-hidden="true" />
             <span>Invite Member</span>
           </Button>
@@ -541,7 +541,7 @@ async function copyText(val: string, key: string) {
                   <Button
                     v-if="!inv.accepted_at && !inv.revoked_at"
                     type="button"
-                    variant="danger"
+                    data-variant="danger"
                     @click="requestRevoke('invite', inv.id, `invite for ${inv.email}`)"
                   >
                     Revoke
@@ -559,7 +559,7 @@ async function copyText(val: string, key: string) {
             <h2>Agent Keys</h2>
             <p class="muted">Per-server bearer credentials used by the SysRoar Rust agent.</p>
           </div>
-          <Button type="button" variant="solid" @click="openIssueKeyDialog()">
+          <Button type="button" data-variant="solid" @click="openIssueKeyDialog()">
             <Plus :size="15" aria-hidden="true" />
             <span>Issue Key</span>
           </Button>
@@ -602,7 +602,7 @@ async function copyText(val: string, key: string) {
                   <Button
                     v-if="k.is_active && !k.revoked_at"
                     type="button"
-                    variant="danger"
+                    data-variant="danger"
                     @click="requestRevoke('agent-key', k.id, `agent key ${k.prefix}`)"
                   >
                     <Trash2 :size="14" aria-hidden="true" />
@@ -648,7 +648,7 @@ async function copyText(val: string, key: string) {
                   <Button
                     v-if="!tk.revoked_at"
                     type="button"
-                    variant="danger"
+                    data-variant="danger"
                     @click="requestRevoke('enrollment-token', tk.id, `enrollment token ${tk.name}`)"
                   >
                     Revoke
@@ -679,7 +679,7 @@ async function copyText(val: string, key: string) {
               </SelectContent>
             </Select>
           </div>
-          <Button type="button" variant="ghost" @click="refetchAudit()">
+          <Button type="button" data-variant="ghost" @click="refetchAudit()">
             <RefreshCw :size="14" aria-hidden="true" />
             <span>Refresh</span>
           </Button>
@@ -728,7 +728,7 @@ async function copyText(val: string, key: string) {
                 Rotates your session epoch and immediately revokes all active browser sessions and WebSocket tickets.
               </p>
             </div>
-            <Button type="button" variant="danger" @click="logoutAllOpen = true">
+            <Button type="button" data-variant="danger" @click="logoutAllOpen = true">
               <LogOut :size="15" aria-hidden="true" />
               <span>Sign Out Everywhere</span>
             </Button>
@@ -761,7 +761,7 @@ async function copyText(val: string, key: string) {
           </p>
           <div class="copy-box">
             <code class="copy-code">{{ createdInviteUrl }}</code>
-            <Button type="button" variant="solid" @click="copyText(createdInviteUrl, 'invite')">
+            <Button type="button" data-variant="solid" @click="copyText(createdInviteUrl, 'invite')">
               <Check v-if="copiedValue === 'invite'" :size="14" aria-hidden="true" />
               <Copy v-else :size="14" aria-hidden="true" />
               <span>{{ copiedValue === 'invite' ? 'Copied' : 'Copy Link' }}</span>
@@ -803,7 +803,7 @@ async function copyText(val: string, key: string) {
 
           <div class="dialog-actions">
             <DialogClose class="btn btn-ghost">Cancel</DialogClose>
-            <Button type="submit" variant="solid" :pending="inviting">Create Invitation</Button>
+            <Button type="submit" data-variant="solid" :pending="inviting">Create Invitation</Button>
           </div>
         </form>
       </DialogContent>
@@ -844,7 +844,7 @@ async function copyText(val: string, key: string) {
 
           <div class="dialog-actions">
             <DialogClose class="btn btn-ghost">Cancel</DialogClose>
-            <Button type="submit" variant="solid" :pending="issuingKey">Issue Key</Button>
+            <Button type="submit" data-variant="solid" :pending="issuingKey">Issue Key</Button>
           </div>
         </form>
       </DialogContent>
@@ -867,7 +867,7 @@ async function copyText(val: string, key: string) {
 
         <div class="copy-box">
           <code class="copy-code">{{ revealedCredentialValue }}</code>
-          <Button type="button" variant="solid" @click="copyText(revealedCredentialValue, 'cred')">
+          <Button type="button" data-variant="solid" @click="copyText(revealedCredentialValue, 'cred')">
             <Check v-if="copiedValue === 'cred'" :size="14" aria-hidden="true" />
             <Copy v-else :size="14" aria-hidden="true" />
             <span>{{ copiedValue === 'cred' ? 'Copied' : 'Copy Key' }}</span>
@@ -889,7 +889,7 @@ async function copyText(val: string, key: string) {
         </AlertDialogDescription>
         <div class="dialog-actions">
           <AlertDialogClose class="btn btn-ghost">Cancel</AlertDialogClose>
-          <Button type="button" variant="danger" :pending="revoking" @click="confirmRevoke()">
+          <Button type="button" data-variant="danger" :pending="revoking" @click="confirmRevoke()">
             Revoke
           </Button>
         </div>
@@ -905,7 +905,7 @@ async function copyText(val: string, key: string) {
         </AlertDialogDescription>
         <div class="dialog-actions">
           <AlertDialogClose class="btn btn-ghost">Cancel</AlertDialogClose>
-          <Button type="button" variant="danger" :pending="loggingOutAll" @click="confirmLogoutAll()">
+          <Button type="button" data-variant="danger" :pending="loggingOutAll" @click="confirmLogoutAll()">
             Sign Out Everywhere
           </Button>
         </div>

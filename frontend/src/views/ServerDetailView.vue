@@ -312,7 +312,7 @@ function handleRefreshAll() {
             </SegmentedControlItem>
           </SegmentedControl>
 
-          <Button type="button" variant="ghost" :pending="metricsFetching && !metricsPending" @click="handleRefreshAll">
+          <Button type="button" data-variant="ghost" :pending="metricsFetching && !metricsPending" @click="handleRefreshAll">
             <RefreshCw :size="15" aria-hidden="true" />
             <span>Refresh</span>
           </Button>
@@ -322,7 +322,7 @@ function handleRefreshAll() {
             <span>Edit</span>
           </Button>
 
-          <Button v-if="auth.canWrite && server" type="button" variant="danger" @click="deleteOpen = true">
+          <Button v-if="auth.canWrite && server" type="button" data-variant="danger" @click="deleteOpen = true">
             <Trash2 :size="15" aria-hidden="true" />
             <span>Delete</span>
           </Button>
@@ -485,7 +485,7 @@ function handleRefreshAll() {
 
           <div class="drawer-actions">
             <DrawerClose class="btn btn-ghost">Cancel</DrawerClose>
-            <Button type="submit" variant="solid" :pending="savingEdit">Save Changes</Button>
+            <Button type="submit" data-variant="solid" :pending="savingEdit">Save Changes</Button>
           </div>
         </form>
       </DrawerContent>
@@ -500,7 +500,7 @@ function handleRefreshAll() {
         </AlertDialogDescription>
         <div class="drawer-actions">
           <AlertDialogClose class="btn btn-ghost">Cancel</AlertDialogClose>
-          <Button type="button" variant="danger" :pending="deleting" @click="handleDeleteConfirm">
+          <Button type="button" data-variant="danger" :pending="deleting" @click="handleDeleteConfirm">
             Delete Server
           </Button>
         </div>

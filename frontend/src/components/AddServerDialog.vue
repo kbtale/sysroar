@@ -286,7 +286,7 @@ function handleOpenChange(nextOpen: boolean) {
 
         <div class="wizard-actions">
           <DialogClose class="btn btn-ghost">Cancel</DialogClose>
-          <Button type="submit" variant="solid" :pending="submitting">
+          <Button type="submit" data-variant="solid" :pending="submitting">
             <Plus :size="15" aria-hidden="true" />
             <span>Generate Enrollment Command</span>
           </Button>
@@ -306,7 +306,7 @@ function handleOpenChange(nextOpen: boolean) {
 
         <div class="wizard-actions">
           <DialogClose class="btn btn-ghost">Cancel</DialogClose>
-          <Button type="submit" variant="solid" :pending="submitting">
+          <Button type="submit" data-variant="solid" :pending="submitting">
             <Server :size="15" aria-hidden="true" />
             <span>Create Server</span>
           </Button>
@@ -323,7 +323,7 @@ function handleOpenChange(nextOpen: boolean) {
             <code class="token-value">{{ enrollmentToken }}</code>
             <Button
               type="button"
-              variant="ghost"
+              data-variant="ghost"
               aria-label="Copy enrollment token"
               @click="copyText(enrollmentToken, 'token')"
             >
@@ -347,7 +347,7 @@ function handleOpenChange(nextOpen: boolean) {
                 <Terminal :size="14" aria-hidden="true" />
                 Bash / systemd host
               </span>
-              <Button type="button" variant="ghost" @click="copyText(linuxCommand, 'linux')">
+              <Button type="button" data-variant="ghost" @click="copyText(linuxCommand, 'linux')">
                 <Check v-if="copiedTarget === 'linux'" :size="14" aria-hidden="true" />
                 <Copy v-else :size="14" aria-hidden="true" />
                 <span>{{ copiedTarget === 'linux' ? 'Copied' : 'Copy command' }}</span>
@@ -362,7 +362,7 @@ function handleOpenChange(nextOpen: boolean) {
                 <Terminal :size="14" aria-hidden="true" />
                 PowerShell 5.1+
               </span>
-              <Button type="button" variant="ghost" @click="copyText(windowsCommand, 'windows')">
+              <Button type="button" data-variant="ghost" @click="copyText(windowsCommand, 'windows')">
                 <Check v-if="copiedTarget === 'windows'" :size="14" aria-hidden="true" />
                 <Copy v-else :size="14" aria-hidden="true" />
                 <span>{{ copiedTarget === 'windows' ? 'Copied' : 'Copy command' }}</span>
@@ -377,7 +377,7 @@ function handleOpenChange(nextOpen: boolean) {
                 <Terminal :size="14" aria-hidden="true" />
                 Docker container
               </span>
-              <Button type="button" variant="ghost" @click="copyText(dockerCommand, 'docker')">
+              <Button type="button" data-variant="ghost" @click="copyText(dockerCommand, 'docker')">
                 <Check v-if="copiedTarget === 'docker'" :size="14" aria-hidden="true" />
                 <Copy v-else :size="14" aria-hidden="true" />
                 <span>{{ copiedTarget === 'docker' ? 'Copied' : 'Copy command' }}</span>
@@ -393,7 +393,7 @@ function handleOpenChange(nextOpen: boolean) {
         </div>
 
         <div class="wizard-actions">
-          <Button type="button" variant="ghost" @click="checkForNewServer()">Check Now</Button>
+          <Button type="button" data-variant="ghost" @click="checkForNewServer()">Check Now</Button>
           <DialogClose class="btn">Done</DialogClose>
         </div>
       </div>
@@ -412,7 +412,7 @@ function handleOpenChange(nextOpen: boolean) {
         </div>
 
         <div class="wizard-actions">
-          <Button type="button" variant="ghost" @click="resetWizard()">Add Another</Button>
+          <Button type="button" data-variant="ghost" @click="resetWizard()">Add Another</Button>
           <router-link
             v-if="connectedServer"
             :to="`/servers/${connectedServer.id}`"

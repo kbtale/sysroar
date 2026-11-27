@@ -261,6 +261,7 @@ const option = computed(() => {
 .chart-canvas {
   width: 100%;
   min-width: 0;
+  overflow: hidden;
 }
 
 .echart {

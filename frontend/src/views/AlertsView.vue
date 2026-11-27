@@ -549,11 +549,11 @@ function refreshCurrent() {
         </span>
       </div>
       <div class="header-actions">
-        <Button type="button" variant="ghost" @click="refreshCurrent()">
+        <Button type="button" data-variant="ghost" @click="refreshCurrent()">
           <RefreshCw :size="15" aria-hidden="true" />
           <span>Refresh</span>
         </Button>
-        <Button v-if="auth.canWrite" type="button" variant="solid" @click="openCreateRuleDialog()">
+        <Button v-if="auth.canWrite" type="button" data-variant="solid" @click="openCreateRuleDialog()">
           <Plus :size="15" aria-hidden="true" />
           <span>New Rule</span>
         </Button>
@@ -567,12 +567,12 @@ function refreshCurrent() {
         <code class="secret-val">{{ revealedSecret }}</code>
       </div>
       <div class="secret-actions">
-        <Button type="button" variant="ghost" @click="copySecret()">
+        <Button type="button" data-variant="ghost" @click="copySecret()">
           <Check v-if="copiedSecret" :size="14" aria-hidden="true" />
           <Copy v-else :size="14" aria-hidden="true" />
           <span>{{ copiedSecret ? 'Copied' : 'Copy' }}</span>
         </Button>
-        <Button type="button" variant="ghost" @click="revealedSecret = ''">Dismiss</Button>
+        <Button type="button" data-variant="ghost" @click="revealedSecret = ''">Dismiss</Button>
       </div>
     </div>
 
@@ -680,7 +680,7 @@ function refreshCurrent() {
                 </td>
                 <td class="num tabular">{{ formatRelativeTime(inc.opened_at) }}</td>
                 <td class="num actions-cell">
-                  <Button type="button" variant="ghost" @click="openIncidentDrawer(inc)">Details</Button>
+                  <Button type="button" data-variant="ghost" @click="openIncidentDrawer(inc)">Details</Button>
                   <Button
                     v-if="auth.canWrite && inc.status === 'open'"
                     type="button"
@@ -692,7 +692,7 @@ function refreshCurrent() {
                   <Button
                     v-if="auth.canWrite && inc.status !== 'resolved'"
                     type="button"
-                    variant="solid"
+                    data-variant="solid"
                     :pending="mutatingIncidentId === inc.id"
                     @click="handleResolve(inc)"
                   >
@@ -709,7 +709,7 @@ function refreshCurrent() {
         <div v-if="rulesPending" class="card empty-box">Loading alert rules...</div>
         <div v-else-if="!rules || rules.length === 0" class="card empty-box">
           <p>No alert rules configured yet.</p>
-          <Button v-if="auth.canWrite" type="button" variant="solid" @click="openCreateRuleDialog()">
+          <Button v-if="auth.canWrite" type="button" data-variant="solid" @click="openCreateRuleDialog()">
             <Plus :size="15" aria-hidden="true" />
             <span>Create First Rule</span>
           </Button>
@@ -762,12 +762,12 @@ function refreshCurrent() {
                   </Switch>
                 </td>
                 <td v-if="auth.canWrite" class="num actions-cell">
-                  <Button type="button" variant="ghost" aria-label="Edit rule" @click="openEditRuleDialog(rule)">
+                  <Button type="button" data-variant="ghost" aria-label="Edit rule" @click="openEditRuleDialog(rule)">
                     <Pencil :size="14" aria-hidden="true" />
                   </Button>
                   <Button
                     type="button"
-                    variant="danger"
+                    data-variant="danger"
                     aria-label="Delete rule"
                     @click="requestDelete('rule', rule.id, `${rule.metric_type} rule`)"
                   >
@@ -783,7 +783,7 @@ function refreshCurrent() {
       <TabsPanel value="channels" class="tab-panel">
         <div class="sub-bar">
           <p class="muted">Reusable Email and HMAC-signed Webhook destinations with SSRF protection.</p>
-          <Button v-if="auth.canWrite" type="button" variant="solid" @click="openCreateChannelDialog()">
+          <Button v-if="auth.canWrite" type="button" data-variant="solid" @click="openCreateChannelDialog()">
             <Plus :size="15" aria-hidden="true" />
             <span>Add Channel</span>
           </Button>
@@ -828,7 +828,7 @@ function refreshCurrent() {
                   </Button>
                   <Button
                     type="button"
-                    variant="danger"
+                    data-variant="danger"
                     aria-label="Delete channel"
                     @click="requestDelete('channel', ch.id, ch.name)"
                   >
@@ -844,7 +844,7 @@ function refreshCurrent() {
       <TabsPanel value="silences" class="tab-panel">
         <div class="sub-bar">
           <p class="muted">Suppress alert firing during planned deployments or maintenance windows.</p>
-          <Button v-if="auth.canWrite" type="button" variant="solid" @click="openCreateSilenceDialog()">
+          <Button v-if="auth.canWrite" type="button" data-variant="solid" @click="openCreateSilenceDialog()">
             <Plus :size="15" aria-hidden="true" />
             <span>Create Silence</span>
           </Button>
@@ -876,7 +876,7 @@ function refreshCurrent() {
                 <td v-if="auth.canWrite" class="num actions-cell">
                   <Button
                     type="button"
-                    variant="danger"
+                    data-variant="danger"
                     aria-label="Remove silence"
                     @click="requestDelete('silence', sil.id, sil.reason || 'this silence')"
                   >
@@ -929,7 +929,7 @@ function refreshCurrent() {
             <Button
               v-if="selectedIncident.status !== 'resolved'"
               type="button"
-              variant="solid"
+              data-variant="solid"
               :pending="mutatingIncidentId === selectedIncident.id"
               @click="handleResolve(selectedIncident)"
             >
@@ -983,7 +983,7 @@ function refreshCurrent() {
                   placeholder="Document investigation findings or remediation steps..."
                 />
               </Field>
-              <Button type="submit" variant="solid" :pending="postingComment">Post Comment</Button>
+              <Button type="submit" data-variant="solid" :pending="postingComment">Post Comment</Button>
             </form>
           </div>
         </div>
@@ -1162,7 +1162,7 @@ function refreshCurrent() {
 
           <div class="dialog-actions">
             <DialogClose class="btn btn-ghost">Cancel</DialogClose>
-            <Button type="submit" variant="solid" :pending="ruleSaving">
+            <Button type="submit" data-variant="solid" :pending="ruleSaving">
               {{ editingRuleId ? 'Save Rule' : 'Create Rule' }}
             </Button>
           </div>
@@ -1229,7 +1229,7 @@ function refreshCurrent() {
 
           <div class="dialog-actions">
             <DialogClose class="btn btn-ghost">Cancel</DialogClose>
-            <Button type="submit" variant="solid" :pending="channelSaving">Create Channel</Button>
+            <Button type="submit" data-variant="solid" :pending="channelSaving">Create Channel</Button>
           </div>
         </form>
       </DialogContent>
@@ -1293,7 +1293,7 @@ function refreshCurrent() {
 
           <div class="dialog-actions">
             <DialogClose class="btn btn-ghost">Cancel</DialogClose>
-            <Button type="submit" variant="solid" :pending="silenceSaving">Create Silence</Button>
+            <Button type="submit" data-variant="solid" :pending="silenceSaving">Create Silence</Button>
           </div>
         </form>
       </DialogContent>
@@ -1308,7 +1308,7 @@ function refreshCurrent() {
         </AlertDialogDescription>
         <div class="dialog-actions">
           <AlertDialogClose class="btn btn-ghost">Cancel</AlertDialogClose>
-          <Button type="button" variant="danger" :pending="deletingItem" @click="confirmDelete()">
+          <Button type="button" data-variant="danger" :pending="deletingItem" @click="confirmDelete()">
             Delete
           </Button>
         </div>
