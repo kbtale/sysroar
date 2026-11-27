@@ -47,7 +47,33 @@ SYSTEM_EVENT_THRESHOLDS = {
 
 REDIS_URL = env('REDIS_URL', default='redis://redis:6379/0')
 
+from django.core.exceptions import ImproperlyConfigured
+from config.security import DEFAULT_CSP_POLICY, validate_production_security
+
 ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['localhost', '127.0.0.1', 'web'])
+
+_PROD_SECURITY_ERRORS = validate_production_security(DEBUG, SECRET_KEY, ALLOWED_HOSTS)
+if _PROD_SECURITY_ERRORS:
+    raise ImproperlyConfigured(' '.join(msg for _, msg in _PROD_SECURITY_ERRORS))
+
+ADMIN_URL = env('ADMIN_URL', default='admin/').lstrip('/')
+if ADMIN_URL and not ADMIN_URL.endswith('/'):
+    ADMIN_URL = f'{ADMIN_URL}/'
+
+SECURE_CONTENT_TYPE_NOSNIFF = True
+X_FRAME_OPTIONS = 'DENY'
+SECURE_REFERRER_POLICY = 'same-origin'
+CSP_POLICY = env('CSP_POLICY', default=DEFAULT_CSP_POLICY)
+
+if not DEBUG:
+    SECURE_SSL_REDIRECT = env.bool('SECURE_SSL_REDIRECT', default=True)
+    SECURE_HSTS_SECONDS = env.int('SECURE_HSTS_SECONDS', default=31536000)
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = env.bool('SECURE_HSTS_INCLUDE_SUBDOMAINS', default=True)
+    SECURE_HSTS_PRELOAD = env.bool('SECURE_HSTS_PRELOAD', default=True)
+    SESSION_COOKIE_SECURE = env.bool('SESSION_COOKIE_SECURE', default=True)
+    CSRF_COOKIE_SECURE = env.bool('CSRF_COOKIE_SECURE', default=True)
+    if env.bool('USE_X_FORWARDED_PROTO', default=True):
+        SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 # Application definition
 INSTALLED_APPS = [
@@ -74,6 +100,7 @@ AUTH_USER_MODEL = 'accounts.User'
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'config.security.SecurityHeadersMiddleware',
     'config.middleware.CorrelationIdMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',

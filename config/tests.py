@@ -117,3 +117,85 @@ class ComposeProfileTests(SimpleTestCase):
         self.assertIn('port => 5000', content)
         self.assertIn('port => 5044', content)
         self.assertIn('codec => json_lines', content)
+
+
+class ProductionSecurityHardeningTests(SimpleTestCase):
+    def test_startup_refuses_default_secret_key_or_wildcard_hosts_when_debug_false(self):
+        from config.checks import check_production_security
+        from config.security import validate_production_security
+
+        default_errs = validate_production_security(
+            debug=False,
+            secret_key='django-insecure-change-me-stargazer',
+            allowed_hosts=['monitor.example.com'],
+        )
+        self.assertEqual([code for code, _ in default_errs], ['sysroar.E001'])
+
+        short_errs = validate_production_security(
+            debug=False,
+            secret_key='too-short',
+            allowed_hosts=['monitor.example.com'],
+        )
+        self.assertEqual([code for code, _ in short_errs], ['sysroar.E001'])
+
+        wildcard_errs = validate_production_security(
+            debug=False,
+            secret_key='x' * 64,
+            allowed_hosts=['*'],
+        )
+        self.assertEqual([code for code, _ in wildcard_errs], ['sysroar.E002'])
+
+        self.assertEqual(
+            validate_production_security(
+                debug=False,
+                secret_key='a' * 64,
+                allowed_hosts=['monitor.example.com'],
+            ),
+            [],
+        )
+
+        with override_settings(DEBUG=False, SECRET_KEY='django-insecure-test', ALLOWED_HOSTS=['*']):
+            check_errors = check_production_security(None)
+        self.assertEqual({err.id for err in check_errors}, {'sysroar.E001', 'sysroar.E002'})
+
+        env = os.environ.copy()
+        env.update(
+            {
+                'DEBUG': 'False',
+                'SECRET_KEY': 'django-insecure-change-me-stargazer',
+                'ALLOWED_HOSTS': '*',
+                'DJANGO_SETTINGS_MODULE': 'config.settings',
+            }
+        )
+        proc = subprocess.run(
+            [sys.executable, '-c', 'import django; django.setup()'],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn('ImproperlyConfigured', proc.stderr)
+
+    def test_security_headers_csp_and_correlation_id_sanitization(self):
+        import uuid
+
+        resp = self.client.get(
+            '/healthz',
+            HTTP_X_CORRELATION_ID='injected\r\nFAKE_LOG_ENTRY=1',
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('Content-Security-Policy', resp)
+        self.assertIn("frame-ancestors 'none'", resp['Content-Security-Policy'])
+        self.assertEqual(resp['X-Content-Type-Options'], 'nosniff')
+        self.assertEqual(resp['X-Frame-Options'], 'DENY')
+        self.assertEqual(resp['Referrer-Policy'], 'same-origin')
+        self.assertIn('Permissions-Policy', resp)
+        self.assertEqual(resp['Cross-Origin-Opener-Policy'], 'same-origin')
+
+        returned_cid = resp['X-Correlation-ID']
+        self.assertNotIn('injected', returned_cid)
+        uuid.UUID(returned_cid)
+
+        oversized = self.client.get('/healthz', HTTP_X_CORRELATION_ID='a' * 500)
+        uuid.UUID(oversized['X-Correlation-ID'])
+        self.assertNotEqual(oversized['X-Correlation-ID'], 'a' * 500)

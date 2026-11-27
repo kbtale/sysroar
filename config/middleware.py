@@ -51,12 +51,21 @@ class WebSocketTicketMiddleware:
         return await self.inner(scope, receive, send)
 
 
+def _sanitize_correlation_id(raw_value: str | None) -> str:
+    if not raw_value or len(raw_value) > 64:
+        return str(uuid.uuid4())
+    try:
+        return str(uuid.UUID(raw_value.strip()))
+    except (ValueError, AttributeError):
+        return str(uuid.uuid4())
+
+
 class CorrelationIdMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request):
-        correlation_id = request.headers.get('X-Correlation-ID', str(uuid.uuid4()))
+        correlation_id = _sanitize_correlation_id(request.headers.get('X-Correlation-ID'))
         set_correlation_id(correlation_id)
 
         request.correlation_id = correlation_id
