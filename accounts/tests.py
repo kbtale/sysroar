@@ -194,3 +194,101 @@ class TenantIsolationTests(TestCase):
         self.assertEqual(list(staff_a_fk.queryset.values_list('id', flat=True)), [self.server_a.id])
         self.assertNotIn(self.server_b.id, list(staff_a_fk.queryset.values_list('id', flat=True)))
         self.assertNotEqual(rule_a.id, rule_b.id)
+
+
+class SessionCsrfAuthTests(TestCase):
+    def setUp(self):
+        self.company = Company.objects.create(name='Session Corp')
+        self.user = User.objects.create_user(
+            username='session_user',
+            email='session@example.com',
+            password='strong-password-123',
+            company=self.company,
+        )
+
+    def test_session_login_sets_httponly_cookie_and_enforces_csrf(self):
+        from rest_framework.test import APIClient
+
+        client = APIClient(enforce_csrf_checks=True)
+        csrf_resp = client.get('/api/accounts/auth/csrf/')
+        self.assertEqual(csrf_resp.status_code, 200)
+        csrf_token = csrf_resp.data['csrfToken']
+
+        login_resp = client.post(
+            '/api/accounts/auth/login/',
+            {'username': 'session_user', 'password': 'strong-password-123'},
+            format='json',
+            HTTP_X_CSRFTOKEN=csrf_token,
+        )
+        self.assertEqual(login_resp.status_code, 200)
+        self.assertNotIn('token', login_resp.data)
+        self.assertEqual(login_resp.data['user']['username'], 'session_user')
+
+        session_cookie = login_resp.cookies['sessionid']
+        self.assertTrue(session_cookie['httponly'])
+        self.assertEqual(session_cookie['samesite'], 'Lax')
+
+        me_resp = client.get('/api/accounts/auth/me/')
+        self.assertEqual(me_resp.status_code, 200)
+        self.assertEqual(me_resp.data['user']['company_id'], str(self.company.id))
+
+        no_csrf_logout = client.post('/api/accounts/auth/logout/')
+        self.assertEqual(no_csrf_logout.status_code, 403)
+
+        new_csrf = client.cookies['csrftoken'].value
+        ok_logout = client.post('/api/accounts/auth/logout/', HTTP_X_CSRFTOKEN=new_csrf)
+        self.assertEqual(ok_logout.status_code, 204)
+
+        after_logout = client.get('/api/accounts/auth/me/')
+        self.assertIn(after_logout.status_code, (401, 403))
+
+    def test_logout_all_invalidates_other_sessions_tokens_and_ws_tickets(self):
+        from rest_framework.test import APIClient
+        from accounts.authentication import ticket_manager
+        from config.middleware import WebSocketTicketMiddleware
+
+        client_a = APIClient()
+        client_b = APIClient()
+        token = Token.objects.create(user=self.user)
+
+        self.assertEqual(
+            client_a.post(
+                '/api/accounts/auth/login/',
+                {'username': 'session_user', 'password': 'strong-password-123'},
+                format='json',
+            ).status_code,
+            200,
+        )
+        self.assertEqual(
+            client_b.post(
+                '/api/accounts/auth/login/',
+                {'username': 'session_user', 'password': 'strong-password-123'},
+                format='json',
+            ).status_code,
+            200,
+        )
+        self.assertEqual(client_b.get('/api/accounts/auth/me/').status_code, 200)
+
+        ticket_resp = client_b.post('/api/accounts/auth/ticket/')
+        self.assertEqual(ticket_resp.status_code, 201)
+        stale_ticket = ticket_resp.data['ticket']
+
+        logout_all_resp = client_a.post('/api/accounts/auth/logout-all/')
+        self.assertEqual(logout_all_resp.status_code, 204)
+
+        self.assertIn(client_b.get('/api/accounts/auth/me/').status_code, (401, 403))
+        self.assertFalse(Token.objects.filter(key=token.key).exists())
+
+        async def check_ws_ticket():
+            captured = {}
+
+            async def inner(scope, receive, send):
+                captured['user'] = scope['user']
+
+            mw = WebSocketTicketMiddleware(inner)
+            await mw({'query_string': f'ticket={stale_ticket}'.encode('utf-8')}, None, None)
+            return captured['user']
+
+        ws_user = asyncio.run(check_ws_ticket())
+        self.assertFalse(ws_user.is_authenticated)
+        self.assertIsNone(ticket_manager.consume_ticket(stale_ticket))

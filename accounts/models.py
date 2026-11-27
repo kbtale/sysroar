@@ -2,6 +2,7 @@ import uuid
 from django.contrib.auth.models import AbstractUser
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+from django.db.models import F
 from .managers import TenantManager, UnscopedManager
 
 
@@ -30,9 +31,17 @@ class User(AbstractUser):
         null=True,
         blank=True,
     )
+    session_epoch = models.PositiveIntegerField(default=1)
 
     class Meta:
         db_table = 'auth_user'
+
+    def invalidate_all_sessions(self):
+        from rest_framework.authtoken.models import Token
+
+        User.objects.filter(pk=self.pk).update(session_epoch=F('session_epoch') + 1)
+        self.refresh_from_db(fields=['session_epoch'])
+        Token.objects.filter(user=self).delete()
 
     def __str__(self):
         return f"{self.username} ({self.company.name if self.company else 'System'})"

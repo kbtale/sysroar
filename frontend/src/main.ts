@@ -10,12 +10,13 @@ const pinia = createPinia()
 app.use(pinia)
 
 const auth = useAuthStore(pinia)
-auth.initAuth()
 setupAuthInterceptor(() => {
   if (router.currentRoute.value.path !== '/login') {
     router.push('/login')
   }
 })
 
-app.use(router)
-app.mount('#app')
+auth.initAuth().finally(() => {
+  app.use(router)
+  app.mount('#app')
+})
