@@ -76,6 +76,7 @@ class AlertRule(TenantModel):
         ('swap', 'Swap Usage (%)'),
         ('load', 'Load Average (1m)'),
         ('no_data', 'Host Offline / No Data'),
+        ('log_count', 'Log Match Count'),
     ]
 
     OPERATOR_CHOICES = [
@@ -122,6 +123,8 @@ class AlertRule(TenantModel):
     threshold_value = models.FloatField()
     hysteresis_margin = models.FloatField(default=0.0)
     duration_minutes = models.PositiveIntegerField(default=5)
+    log_query = models.CharField(max_length=255, blank=True, default='')
+    log_level = models.CharField(max_length=16, blank=True, default='')
     is_active = models.BooleanField(default=True)
 
     notification_type = models.CharField(

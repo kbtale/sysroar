@@ -44,6 +44,8 @@ services:
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/1}
       - LOG_BACKEND=${LOG_BACKEND:-none}
+      - LOKI_URL=${LOKI_URL:-http://loki:3100}
+      - ELASTICSEARCH_URL=${ELASTICSEARCH_URL:-http://elasticsearch:9200}
       - LOGSTASH_HOST=logstash
       - LOGSTASH_PORT=5044
     ports:
@@ -70,6 +72,8 @@ services:
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/1}
       - LOG_BACKEND=${LOG_BACKEND:-none}
+      - LOKI_URL=${LOKI_URL:-http://loki:3100}
+      - ELASTICSEARCH_URL=${ELASTICSEARCH_URL:-http://elasticsearch:9200}
       - LOGSTASH_HOST=logstash
       - LOGSTASH_PORT=5044
     depends_on:
@@ -89,6 +93,8 @@ services:
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/1}
       - LOG_BACKEND=${LOG_BACKEND:-none}
+      - LOKI_URL=${LOKI_URL:-http://loki:3100}
+      - ELASTICSEARCH_URL=${ELASTICSEARCH_URL:-http://elasticsearch:9200}
       - LOGSTASH_HOST=logstash
       - LOGSTASH_PORT=5044
     depends_on:
@@ -108,6 +114,8 @@ services:
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/1}
       - LOG_BACKEND=${LOG_BACKEND:-none}
+      - LOKI_URL=${LOKI_URL:-http://loki:3100}
+      - ELASTICSEARCH_URL=${ELASTICSEARCH_URL:-http://elasticsearch:9200}
       - LOGSTASH_HOST=logstash
       - LOGSTASH_PORT=5044
     depends_on:
@@ -116,6 +124,36 @@ services:
       redis:
         condition: service_healthy
     command: celery -A config beat --loglevel=info
+
+  loki:
+    image: grafana/loki:3.1.1
+    profiles:
+      - logs
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./deploy/loki/loki-config.yml:/etc/loki/local-config.yaml:ro
+      - loki_data:/loki
+    ports:
+      - "127.0.0.1:3100:3100"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3100/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  vector:
+    image: timberio/vector:0.41.1-alpine
+    profiles:
+      - logs
+    command: --config /etc/vector/vector.toml
+    volumes:
+      - ./deploy/vector/vector.toml:/etc/vector/vector.toml:ro
+    ports:
+      - "127.0.0.1:8686:8686"
+      - "127.0.0.1:5140:5140"
+    depends_on:
+      loki:
+        condition: service_healthy
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.11.1
@@ -157,3 +195,4 @@ services:
 volumes:
   postgres_data:
   es_data:
+  loki_data:

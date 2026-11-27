@@ -5,6 +5,7 @@ use sysroar_agent::buffer::DiskBuffer;
 use sysroar_agent::collector::SystemCollector;
 use sysroar_agent::config::{clamp_cadence, AgentConfig};
 use sysroar_agent::docker::collect_docker_containers;
+use sysroar_agent::logs::{ship_log_batch, LogTailer};
 use sysroar_agent::transport::{TransportClient, TransportError};
 use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
@@ -138,6 +139,19 @@ async fn main() {
     let mut cadence_secs = config.telemetry_cadence_secs;
     let mut collect_interval = tokio::time::interval(Duration::from_secs(cadence_secs));
     let mut config_interval = tokio::time::interval(Duration::from_secs(config.config_poll_secs));
+    let mut log_interval = tokio::time::interval(Duration::from_secs(5));
+    let mut log_tailer = match (&config.log_shipper_url, &config.log_company_id) {
+        (Some(_), Some(cid)) if !config.log_paths.is_empty() => Some(LogTailer::new(
+            cid.clone(),
+            config.server_id.clone(),
+            config.log_paths.clone(),
+        )),
+        _ => None,
+    };
+    let log_client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .ok();
     let mut etag: Option<String> = None;
 
     info!(?config, "sysroar-agent started");
@@ -155,6 +169,20 @@ async fn main() {
                     error!(error = %err, "failed to append sample to disk buffer");
                 }
                 drain_buffer(&mut buffer, &transport, config.batch_size).await;
+            }
+            _ = log_interval.tick(), if log_tailer.is_some() => {
+                if let (Some(tailer), Some(url), Some(client)) = (
+                    log_tailer.as_mut(),
+                    config.log_shipper_url.as_deref(),
+                    log_client.as_ref(),
+                ) {
+                    let entries = tailer.poll(200);
+                    if !entries.is_empty() {
+                        if let Err(err) = ship_log_batch(client, url, &entries).await {
+                            warn!(error = %err, "failed to ship log batch");
+                        }
+                    }
+                }
             }
             _ = config_interval.tick() => {
                 match transport.fetch_config(&mut etag).await {

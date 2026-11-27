@@ -31,6 +31,9 @@ pub struct AgentConfig {
     pub max_buffer_rows: usize,
     pub batch_size: usize,
     pub log_level: String,
+    pub log_shipper_url: Option<String>,
+    pub log_company_id: Option<String>,
+    pub log_paths: Vec<PathBuf>,
 }
 
 impl fmt::Debug for AgentConfig {
@@ -45,6 +48,9 @@ impl fmt::Debug for AgentConfig {
             .field("max_buffer_rows", &self.max_buffer_rows)
             .field("batch_size", &self.batch_size)
             .field("log_level", &self.log_level)
+            .field("log_shipper_url", &self.log_shipper_url)
+            .field("log_company_id", &self.log_company_id)
+            .field("log_paths", &self.log_paths)
             .finish()
     }
 }
@@ -110,6 +116,24 @@ impl AgentConfig {
             .unwrap_or(DEFAULT_BATCH_SIZE);
 
         let log_level = env::var("SYSROAR_LOG_LEVEL").unwrap_or_else(|_| "INFO".to_string());
+        let log_shipper_url = env::var("SYSROAR_LOG_SHIPPER_URL")
+            .ok()
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty());
+        let log_company_id = env::var("SYSROAR_COMPANY_ID")
+            .ok()
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty());
+        let log_paths = env::var("SYSROAR_LOG_PATHS")
+            .ok()
+            .map(|raw| {
+                raw.split(',')
+                    .map(|p| p.trim())
+                    .filter(|p| !p.is_empty())
+                    .map(PathBuf::from)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
 
         Ok(Self {
             api_base_url,
@@ -121,6 +145,9 @@ impl AgentConfig {
             max_buffer_rows,
             batch_size,
             log_level,
+            log_shipper_url,
+            log_company_id,
+            log_paths,
         })
     }
 
@@ -160,6 +187,9 @@ mod tests {
             max_buffer_rows: 1000,
             batch_size: 100,
             log_level: "INFO".to_string(),
+            log_shipper_url: None,
+            log_company_id: None,
+            log_paths: Vec::new(),
         };
         let formatted = format!("{cfg:?}");
         assert!(!formatted.contains("super-secret-token-value"));
