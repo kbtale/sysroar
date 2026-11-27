@@ -114,8 +114,8 @@ describe('auth, theme, and telemetry lifecycle', () => {
     expect(auth.canWrite).toBe(false)
 
     const telemetry = useTelemetryStore()
-    const socket = new FakeWebSocket('ws://localhost:8000/ws/telemetry/srv-1/?ticket=t1')
-    telemetry.sockets['srv-1'] = socket as unknown as WebSocket
+    const socket = new FakeWebSocket('ws://localhost:8000/ws/telemetry/?ticket=t1')
+    telemetry.socket = socket as unknown as WebSocket
 
     const onUnauthorized = vi.fn()
     setupAuthInterceptor(onUnauthorized)
@@ -131,7 +131,7 @@ describe('auth, theme, and telemetry lifecycle', () => {
     expect(auth.isAuthenticated).toBe(false)
     expect(auth.user).toBeNull()
     expect(socket.closed).toBe(true)
-    expect(Object.keys(telemetry.sockets)).toHaveLength(0)
+    expect(telemetry.socket).toBeNull()
     expect(onUnauthorized).toHaveBeenCalledTimes(1)
   })
 
@@ -149,8 +149,8 @@ describe('auth, theme, and telemetry lifecycle', () => {
     }
 
     const telemetry = useTelemetryStore()
-    const socket = new FakeWebSocket('ws://localhost:8000/ws/telemetry/srv-1/?ticket=t1')
-    telemetry.sockets['srv-1'] = socket as unknown as WebSocket
+    const socket = new FakeWebSocket('ws://localhost:8000/ws/telemetry/?ticket=t1')
+    telemetry.socket = socket as unknown as WebSocket
 
     await auth.logoutAll()
 

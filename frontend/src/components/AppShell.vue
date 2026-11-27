@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   Activity,
@@ -25,13 +25,25 @@ import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from '@ui-sdk
 import { Switch, SwitchThumb } from '@ui-sdk/vue/switch'
 import { toast } from '@ui-sdk/vue/toast'
 import { useAuthStore } from '../stores/auth'
+import { useTelemetryStore } from '../stores/telemetry'
 import { useThemeStore } from '../stores/theme'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+const telemetry = useTelemetryStore()
 const theme = useThemeStore()
 const mobileNavOpen = ref(false)
+
+onMounted(() => {
+  if (auth.isAuthenticated) {
+    telemetry.connect()
+  }
+})
+
+onUnmounted(() => {
+  telemetry.disconnectAll()
+})
 
 const navItems = [
   { to: '/', label: 'Fleet', icon: Server, match: (path: string) => path === '/' || path.startsWith('/servers/') },
