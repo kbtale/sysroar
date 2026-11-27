@@ -253,6 +253,8 @@ class AlertRuleSerializer(serializers.ModelSerializer):
             'threshold_value',
             'hysteresis_margin',
             'duration_minutes',
+            'log_query',
+            'log_level',
             'is_active',
             'notification_type',
             'notification_target',

@@ -45,6 +45,28 @@ _AGG_FUNC_MAP = {
 
 
 def _aggregate_rule_window(rule, now):
+    if rule.metric_type == 'log_count':
+        from telemetry.logs import get_log_backend
+
+        backend = get_log_backend()
+        if not backend.enabled:
+            return None
+        window_seconds = max(int(rule.duration_minutes or 0) * 60, 300)
+        window_start = now - timedelta(seconds=window_seconds)
+        try:
+            return float(
+                backend.count_matching(
+                    company_id=str(rule.company_id),
+                    server_id=str(rule.server_id) if rule.server_id else None,
+                    q=rule.log_query or '',
+                    level=rule.log_level or '',
+                    start=window_start,
+                    end=now,
+                )
+            )
+        except Exception as exc:
+            logger.error(f'Log alert evaluation failed for rule {rule.id}: {exc}')
+            return None
     column = _METRIC_COLUMN_MAP.get(rule.metric_type)
     if not column:
         return None

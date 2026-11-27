@@ -398,6 +398,28 @@ paths:
       responses:
         '200':
           description: No response body
+  /api/logs/query/:
+    get:
+      operationId: logs_query_retrieve
+      tags:
+      - logs
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/logs/status/:
+    get:
+      operationId: logs_status_retrieve
+      tags:
+      - logs
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          description: No response body
   /api/monitoring/agent-keys/:
     get:
       operationId: monitoring_agent_keys_list
@@ -1854,6 +1876,54 @@ paths:
       responses:
         '200':
           description: No response body
+  /api/telemetry/otlp/v1/metrics:
+    post:
+      operationId: telemetry_otlp_v1_metrics_create
+      tags:
+      - telemetry
+      security:
+      - agentKeyAuth: []
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/telemetry/otlp/v1/metrics/:
+    post:
+      operationId: telemetry_otlp_v1_metrics_create_2
+      tags:
+      - telemetry
+      security:
+      - agentKeyAuth: []
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/telemetry/prometheus/remote-write:
+    post:
+      operationId: telemetry_prometheus_remote_write_create
+      tags:
+      - telemetry
+      security:
+      - agentKeyAuth: []
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          description: No response body
+  /api/telemetry/prometheus/remote-write/:
+    post:
+      operationId: telemetry_prometheus_remote_write_create_2
+      tags:
+      - telemetry
+      security:
+      - agentKeyAuth: []
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          description: No response body
   /api/telemetry/servers/{server_id}/metrics/:
     get:
       operationId: telemetry_servers_metrics_retrieve
@@ -1981,6 +2051,12 @@ components:
           type: integer
           maximum: 2147483647
           minimum: 0
+        log_query:
+          type: string
+          maxLength: 255
+        log_level:
+          type: string
+          maxLength: 16
         is_active:
           type: boolean
         notification_type:
@@ -2032,6 +2108,12 @@ components:
           type: integer
           maximum: 2147483647
           minimum: 0
+        log_query:
+          type: string
+          maxLength: 255
+        log_level:
+          type: string
+          maxLength: 16
         is_active:
           type: boolean
         notification_type:
@@ -2690,6 +2772,7 @@ components:
       - swap
       - load
       - no_data
+      - log_count
       type: string
       description: |-
         * `cpu` - CPU Usage (%)
@@ -2699,6 +2782,7 @@ components:
         * `swap` - Swap Usage (%)
         * `load` - Load Average (1m)
         * `no_data` - Host Offline / No Data
+        * `log_count` - Log Match Count
     NotificationChannel:
       type: object
       properties:
@@ -3147,6 +3231,12 @@ components:
           type: integer
           maximum: 2147483647
           minimum: 0
+        log_query:
+          type: string
+          maxLength: 255
+        log_level:
+          type: string
+          maxLength: 16
         is_active:
           type: boolean
         notification_type:

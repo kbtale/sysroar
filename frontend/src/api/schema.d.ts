@@ -260,6 +260,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/logs/query/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["logs_query_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/logs/status/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["logs_status_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/monitoring/agent-keys/": {
         parameters: {
             query?: never;
@@ -884,6 +916,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/telemetry/otlp/v1/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["telemetry_otlp_v1_metrics_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/telemetry/otlp/v1/metrics/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["telemetry_otlp_v1_metrics_create_2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/telemetry/prometheus/remote-write": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["telemetry_prometheus_remote_write_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/telemetry/prometheus/remote-write/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["telemetry_prometheus_remote_write_create_2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/telemetry/servers/{server_id}/metrics/": {
         parameters: {
             query?: never;
@@ -944,6 +1040,8 @@ export interface components {
             /** Format: double */
             hysteresis_margin?: number;
             duration_minutes?: number;
+            log_query?: string;
+            log_level?: string;
             is_active?: boolean;
             notification_type?: components["schemas"]["NotificationTypeEnum"];
             notification_target?: string | null;
@@ -965,6 +1063,8 @@ export interface components {
             /** Format: double */
             hysteresis_margin?: number;
             duration_minutes?: number;
+            log_query?: string;
+            log_level?: string;
             is_active?: boolean;
             notification_type?: components["schemas"]["NotificationTypeEnum"];
             notification_target?: string | null;
@@ -1243,9 +1343,10 @@ export interface components {
          *     * `swap` - Swap Usage (%)
          *     * `load` - Load Average (1m)
          *     * `no_data` - Host Offline / No Data
+         *     * `log_count` - Log Match Count
          * @enum {string}
          */
-        MetricTypeEnum: "cpu" | "ram" | "disk" | "disk_io" | "swap" | "load" | "no_data";
+        MetricTypeEnum: "cpu" | "ram" | "disk" | "disk_io" | "swap" | "load" | "no_data" | "log_count";
         NotificationChannel: {
             /** Format: uuid */
             readonly id: string;
@@ -1514,6 +1615,8 @@ export interface components {
             /** Format: double */
             hysteresis_margin?: number;
             duration_minutes?: number;
+            log_query?: string;
+            log_level?: string;
             is_active?: boolean;
             notification_type?: components["schemas"]["NotificationTypeEnum"];
             notification_target?: string | null;
@@ -2220,6 +2323,42 @@ export interface operations {
         };
     };
     accounts_setup_status_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    logs_query_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    logs_status_retrieve: {
         parameters: {
             query?: never;
             header?: never;
@@ -3723,6 +3862,78 @@ export interface operations {
         };
     };
     telemetry_inventory_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    telemetry_otlp_v1_metrics_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    telemetry_otlp_v1_metrics_create_2: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    telemetry_prometheus_remote_write_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    telemetry_prometheus_remote_write_create_2: {
         parameters: {
             query?: never;
             header?: never;

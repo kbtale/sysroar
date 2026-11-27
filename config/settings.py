@@ -321,6 +321,9 @@ CSRF_COOKIE_SAMESITE = 'Lax'
 from config.logging_utils import build_logging_config
 
 LOG_BACKEND = env('LOG_BACKEND', default='none').lower()
+LOKI_URL = env('LOKI_URL', default='http://loki:3100').rstrip('/')
+ELASTICSEARCH_URL = env('ELASTICSEARCH_URL', default='http://elasticsearch:9200').rstrip('/')
+ELASTICSEARCH_LOG_INDEX = env('ELASTICSEARCH_LOG_INDEX', default='sysroar-logs-*')
 LOGSTASH_HOST = env('LOGSTASH_HOST', default='logstash')
 LOGSTASH_PORT = env.int('LOGSTASH_PORT', default=5044)
 LOG_LEVEL = env('LOG_LEVEL', default='INFO').upper()

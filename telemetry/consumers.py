@@ -1,9 +1,14 @@
+import asyncio
+from datetime import timedelta
 import json
 import logging
+from urllib.parse import parse_qs
 from asgiref.sync import sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
+from django.utils import timezone
 from monitoring.models import Server
 from monitoring.tasks import record_system_event
+from telemetry.logs import get_log_backend
 
 logger = logging.getLogger(__name__)
 
@@ -89,3 +94,57 @@ class ServerTelemetryConsumer(AsyncWebsocketConsumer):
         for sample in event.get('samples', []):
             if sample.get('server_id') == self.server_id:
                 await self.send(text_data=json.dumps(sample))
+
+
+class LogTailConsumer(AsyncWebsocketConsumer):
+    async def connect(self):
+        self.user = self.scope.get('user')
+        if not self.user or not self.user.is_authenticated or not getattr(self.user, 'company_id', None):
+            await self.close(code=4401)
+            return
+
+        qs = parse_qs((self.scope.get('query_string') or b'').decode('utf-8', errors='ignore'))
+        self.server_id = (qs.get('server_id', [''])[0] or '').strip() or None
+        self.q = (qs.get('q', [''])[0] or '').strip()[:256]
+        self.level = (qs.get('level', [''])[0] or '').strip().upper()[:16]
+        self.company_id = str(self.user.company_id)
+
+        if self.server_id:
+            exists = await Server.unscoped.filter(id=self.server_id, company_id=self.user.company_id).aexists()
+            if not exists:
+                await self.close(code=4403)
+                return
+
+        await self.accept()
+        self._tail_task = asyncio.create_task(self._poll_loop())
+
+    async def disconnect(self, close_code):
+        task = getattr(self, '_tail_task', None)
+        if task is not None:
+            task.cancel()
+
+    async def _poll_loop(self):
+        cursor = timezone.now() - timedelta(seconds=15)
+        try:
+            while True:
+                backend = get_log_backend()
+                if backend.enabled:
+                    now = timezone.now()
+                    try:
+                        entries = await sync_to_async(backend.query)(
+                            company_id=self.company_id,
+                            server_id=self.server_id,
+                            q=self.q,
+                            level=self.level,
+                            start=cursor,
+                            end=now,
+                            limit=100,
+                        )
+                    except Exception:
+                        entries = []
+                    cursor = now
+                    if entries:
+                        await self.send(text_data=json.dumps({'type': 'log_lines', 'entries': entries}))
+                await asyncio.sleep(2)
+        except asyncio.CancelledError:
+            return

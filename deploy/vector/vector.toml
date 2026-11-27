@@ -1,0 +1,38 @@
+[api]
+enabled = true
+address = "0.0.0.0:8687"
+
+[sources.agent_http]
+type = "http_server"
+address = "0.0.0.0:8686"
+encoding = "json"
+path = "/logs"
+
+[sources.syslog_tcp]
+type = "syslog"
+address = "0.0.0.0:5140"
+mode = "tcp"
+
+[transforms.normalize_logs]
+type = "remap"
+inputs = ["agent_http", "syslog_tcp"]
+source = '''
+.company_id = string(.company_id) ?? "default"
+.server_id = string(.server_id) ?? string(.host) ?? "unknown"
+.level = upcase(string(.level) ?? string(.severity) ?? "INFO")
+.source = string(.source) ?? "agent"
+.message = string(.message) ?? encode_json(.)
+'''
+
+[sinks.loki]
+type = "loki"
+inputs = ["normalize_logs"]
+endpoint = "http://loki:3100"
+tenant_id = "{{ company_id }}"
+encoding.codec = "text"
+
+[sinks.loki.labels]
+company_id = "{{ company_id }}"
+server_id = "{{ server_id }}"
+level = "{{ level }}"
+source = "{{ source }}"

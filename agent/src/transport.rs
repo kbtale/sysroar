@@ -195,6 +195,9 @@ mod tests {
             max_buffer_rows: 1000,
             batch_size: 100,
             log_level: "INFO".to_string(),
+            log_shipper_url: None,
+            log_company_id: None,
+            log_paths: Vec::new(),
         }
     }
 
