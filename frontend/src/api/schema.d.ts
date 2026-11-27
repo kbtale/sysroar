@@ -692,6 +692,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/monitoring/status-pages/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["monitoring_status_pages_list"];
+        put?: never;
+        post: operations["monitoring_status_pages_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/monitoring/status-pages/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["monitoring_status_pages_retrieve"];
+        put: operations["monitoring_status_pages_update"];
+        post?: never;
+        delete: operations["monitoring_status_pages_destroy"];
+        options?: never;
+        head?: never;
+        patch: operations["monitoring_status_pages_partial_update"];
+        trace?: never;
+    };
     "/api/monitoring/uptime-checks/": {
         parameters: {
             query?: never;
@@ -750,6 +782,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["monitoring_uptime_checks_run_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/public/status/{slug}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["public_status_retrieve"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1420,6 +1468,21 @@ export interface components {
             previous?: string | null;
             results: components["schemas"]["Server"][];
         };
+        PaginatedStatusPageList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["StatusPage"][];
+        };
         PaginatedUptimeCheckList: {
             /** @example 123 */
             count: number;
@@ -1507,6 +1570,16 @@ export interface components {
             telemetry_cadence?: number;
             log_level?: string;
             tags?: unknown;
+        };
+        PatchedStatusPageRequest: {
+            slug?: string;
+            title?: string;
+            description?: string;
+            is_public?: boolean;
+            accent_color?: string;
+            show_incidents?: boolean;
+            servers?: string[];
+            uptime_checks?: string[];
         };
         PatchedUptimeCheckRequest: {
             name?: string;
@@ -1606,6 +1679,32 @@ export interface components {
          * @enum {string}
          */
         StatusEnum: "open" | "acknowledged" | "resolved";
+        StatusPage: {
+            /** Format: uuid */
+            readonly id: string;
+            slug: string;
+            title: string;
+            description?: string;
+            is_public?: boolean;
+            accent_color?: string;
+            show_incidents?: boolean;
+            servers?: string[];
+            uptime_checks?: string[];
+            /** Format: date-time */
+            readonly created_at: string;
+            /** Format: date-time */
+            readonly updated_at: string;
+        };
+        StatusPageRequest: {
+            slug: string;
+            title: string;
+            description?: string;
+            is_public?: boolean;
+            accent_color?: string;
+            show_incidents?: boolean;
+            servers?: string[];
+            uptime_checks?: string[];
+        };
         UptimeCheck: {
             /** Format: uuid */
             readonly id: string;
@@ -3203,6 +3302,146 @@ export interface operations {
             };
         };
     };
+    monitoring_status_pages_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedStatusPageList"];
+                };
+            };
+        };
+    };
+    monitoring_status_pages_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StatusPageRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatusPage"];
+                };
+            };
+        };
+    };
+    monitoring_status_pages_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A UUID string identifying this status page. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatusPage"];
+                };
+            };
+        };
+    };
+    monitoring_status_pages_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A UUID string identifying this status page. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StatusPageRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatusPage"];
+                };
+            };
+        };
+    };
+    monitoring_status_pages_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A UUID string identifying this status page. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    monitoring_status_pages_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A UUID string identifying this status page. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedStatusPageRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StatusPage"];
+                };
+            };
+        };
+    };
     monitoring_uptime_checks_list: {
         parameters: {
             query?: {
@@ -3388,6 +3627,26 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["UptimeCheck"];
                 };
+            };
+        };
+    };
+    public_status_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

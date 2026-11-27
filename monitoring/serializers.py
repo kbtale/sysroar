@@ -20,6 +20,7 @@ from .models import (
     MaintenanceWindow,
     NotificationChannel,
     Server,
+    StatusPage,
     UptimeCheck,
     UptimeCheckResult,
 )
@@ -559,6 +560,54 @@ class MaintenanceWindowSerializer(serializers.ModelSerializer):
         if scope == 'tag' and not tag_filter:
             raise serializers.ValidationError({'tag_filter': 'Tag filter is required when scope is tag.'})
         return attrs
+
+
+class StatusPageSerializer(serializers.ModelSerializer):
+    servers = serializers.PrimaryKeyRelatedField(queryset=Server.unscoped.all(), many=True, required=False)
+    uptime_checks = serializers.PrimaryKeyRelatedField(queryset=UptimeCheck.unscoped.all(), many=True, required=False)
+
+    class Meta:
+        model = StatusPage
+        fields = [
+            'id',
+            'slug',
+            'title',
+            'description',
+            'is_public',
+            'accent_color',
+            'show_incidents',
+            'servers',
+            'uptime_checks',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def validate_slug(self, value):
+        cleaned = (value or '').strip().lower()
+        if not re.match(r'^[a-z0-9][a-z0-9-]{1,78}[a-z0-9]$', cleaned):
+            raise serializers.ValidationError('Slug must be 3-80 lowercase letters, numbers, or hyphens.')
+        return cleaned
+
+    def validate_accent_color(self, value):
+        cleaned = (value or '#0ea5e9').strip()
+        if not re.match(r'^#[0-9a-fA-F]{6}$', cleaned):
+            raise serializers.ValidationError('Accent color must be a 6-digit hex color like #0ea5e9.')
+        return cleaned
+
+    def validate_servers(self, values):
+        company_id = getattr(getattr(self.context.get('request'), 'user', None), 'company_id', None)
+        for srv in values:
+            if not company_id or srv.company_id != company_id:
+                raise serializers.ValidationError('One or more servers do not exist or access denied.')
+        return values
+
+    def validate_uptime_checks(self, values):
+        company_id = getattr(getattr(self.context.get('request'), 'user', None), 'company_id', None)
+        for chk in values:
+            if not company_id or chk.company_id != company_id:
+                raise serializers.ValidationError('One or more uptime checks do not exist or access denied.')
+        return values
 
 
 class AuditLogSerializer(serializers.ModelSerializer):

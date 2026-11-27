@@ -7,7 +7,9 @@ import {
   Check,
   ChevronDown,
   Copy,
+  ExternalLink,
   FileClock,
+  Globe,
   KeyRound,
   LogOut,
   Plus,
@@ -64,8 +66,27 @@ import {
 import { useAuthStore } from '../stores/auth'
 import { formatDateTime, formatRelativeTime } from '../utils/format'
 
-const ALL_TABS = ['company', 'members', 'keys', 'audit', 'security'] as const
+const ALL_TABS = ['company', 'status-pages', 'members', 'keys', 'audit', 'security'] as const
 type SettingsTab = (typeof ALL_TABS)[number]
+
+interface StatusPageRecord {
+  id: string
+  slug: string
+  title: string
+  description: string
+  is_public: boolean
+  accent_color: string
+  show_incidents: boolean
+  servers: string[]
+  uptime_checks: string[]
+  created_at: string
+  updated_at: string
+}
+
+interface UptimeCheckBrief {
+  id: string
+  name: string
+}
 
 const route = useRoute()
 const router = useRouter()
@@ -75,7 +96,9 @@ const queryClient = useQueryClient()
 const isOwner = computed(() => auth.user?.role === 'owner' || Boolean(auth.user?.is_superuser))
 
 const allowedTabs = computed<SettingsTab[]>(() =>
-  auth.isAdmin ? ['company', 'members', 'keys', 'audit', 'security'] : ['company', 'security'],
+  auth.isAdmin
+    ? ['company', 'status-pages', 'members', 'keys', 'audit', 'security']
+    : ['company', 'status-pages', 'security'],
 )
 
 const requestedTab = route.query.tab as SettingsTab
@@ -165,8 +188,17 @@ const { data: invites, isPending: invitesPending } = useQuery<CompanyInviteRecor
 
 const { data: servers } = useQuery<ServerRecord[]>({
   queryKey: ['servers'],
-  enabled: computed(() => auth.isAdmin),
   queryFn: async () => unwrapResults<ServerRecord>((await api.get('/api/monitoring/servers/')).data),
+})
+
+const { data: uptimeChecks } = useQuery<UptimeCheckBrief[]>({
+  queryKey: ['uptime-checks-brief'],
+  queryFn: async () => unwrapResults<UptimeCheckBrief>((await api.get('/api/monitoring/uptime-checks/')).data),
+})
+
+const { data: statusPages, isPending: statusPagesPending } = useQuery<StatusPageRecord[]>({
+  queryKey: ['status-pages'],
+  queryFn: async () => unwrapResults<StatusPageRecord>((await api.get('/api/monitoring/status-pages/')).data),
 })
 
 const { data: agentKeys, isPending: keysPending } = useQuery<AgentKeyRecord[]>({
@@ -362,6 +394,70 @@ async function confirmRevoke() {
 const logoutAllOpen = ref(false)
 const loggingOutAll = ref(false)
 
+const statusDialogOpen = ref(false)
+const statusSlug = ref('')
+const statusTitle = ref('')
+const statusDescription = ref('')
+const statusPublic = ref(true)
+const statusShowIncidents = ref(true)
+const statusServerIds = ref<string[]>([])
+const statusCheckIds = ref<string[]>([])
+const statusSaving = ref(false)
+const statusError = ref('')
+
+function openCreateStatusPage() {
+  statusSlug.value = ''
+  statusTitle.value = ''
+  statusDescription.value = ''
+  statusPublic.value = true
+  statusShowIncidents.value = true
+  statusServerIds.value = []
+  statusCheckIds.value = []
+  statusError.value = ''
+  statusDialogOpen.value = true
+}
+
+function toggleListId(list: string[], id: string): string[] {
+  return list.includes(id) ? list.filter((x) => x !== id) : [...list, id]
+}
+
+async function handleCreateStatusPage() {
+  statusError.value = ''
+  statusSaving.value = true
+  try {
+    await api.post('/api/monitoring/status-pages/', {
+      slug: statusSlug.value.trim().toLowerCase(),
+      title: statusTitle.value.trim(),
+      description: statusDescription.value.trim(),
+      is_public: statusPublic.value,
+      show_incidents: statusShowIncidents.value,
+      servers: statusServerIds.value,
+      uptime_checks: statusCheckIds.value,
+    })
+    queryClient.invalidateQueries({ queryKey: ['status-pages'] })
+    statusDialogOpen.value = false
+    toast.success('Status page created')
+  } catch (err) {
+    statusError.value = extractApiError(err, 'Could not create status page.')
+  } finally {
+    statusSaving.value = false
+  }
+}
+
+async function handleDeleteStatusPage(page: StatusPageRecord) {
+  try {
+    await api.delete(`/api/monitoring/status-pages/${page.id}/`)
+    queryClient.invalidateQueries({ queryKey: ['status-pages'] })
+    toast.success('Status page deleted')
+  } catch (err) {
+    toast.error(extractApiError(err, 'Could not delete status page.'))
+  }
+}
+
+function publicStatusUrl(slug: string): string {
+  return `${window.location.origin}/status/${slug}`
+}
+
 async function confirmLogoutAll() {
   loggingOutAll.value = true
   try {
@@ -402,6 +498,10 @@ async function copyText(val: string, key: string) {
         <TabsTab value="company">
           <Building2 :size="14" aria-hidden="true" />
           <span>Company</span>
+        </TabsTab>
+        <TabsTab value="status-pages">
+          <Globe :size="14" aria-hidden="true" />
+          <span>Status Pages</span>
         </TabsTab>
         <TabsTab v-if="auth.isAdmin" value="members">
           <Users :size="14" aria-hidden="true" />
@@ -476,6 +576,82 @@ async function copyText(val: string, key: string) {
               <Button type="submit" data-variant="solid" :pending="savingCompany">Save Workspace</Button>
             </div>
           </form>
+        </div>
+      </TabsPanel>
+
+      <TabsPanel value="status-pages" class="tab-panel">
+        <div class="section-head">
+          <div>
+            <h2>Public Status Pages</h2>
+            <p class="muted">Publish selected uptime checks and services to a public status URL.</p>
+          </div>
+          <Button v-if="auth.canWrite" type="button" data-variant="solid" @click="openCreateStatusPage()">
+            <Plus :size="15" aria-hidden="true" />
+            <span>New Status Page</span>
+          </Button>
+        </div>
+
+        <div v-if="statusPagesPending" class="card empty-box">Loading status pages...</div>
+        <div v-else-if="!statusPages || statusPages.length === 0" class="card empty-box">
+          <p>No status pages created yet.</p>
+        </div>
+        <div v-else class="card table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Title</th>
+                <th>Public URL</th>
+                <th>Visibility</th>
+                <th>Components</th>
+                <th class="num">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="sp in statusPages" :key="sp.id">
+                <td>
+                  <strong>{{ sp.title }}</strong>
+                </td>
+                <td>
+                  <code class="mono">/status/{{ sp.slug }}</code>
+                </td>
+                <td>
+                  <span class="badge" :class="sp.is_public ? 'badge-ok' : 'badge-neutral'">
+                    {{ sp.is_public ? 'public' : 'private' }}
+                  </span>
+                </td>
+                <td class="tabular muted">{{ sp.servers.length + sp.uptime_checks.length }} items</td>
+                <td class="num actions-cell">
+                  <Button
+                    type="button"
+                    data-variant="ghost"
+                    aria-label="Copy status page URL"
+                    @click="copyText(publicStatusUrl(sp.slug), sp.id)"
+                  >
+                    <Check v-if="copiedValue === sp.id" :size="14" aria-hidden="true" />
+                    <Copy v-else :size="14" aria-hidden="true" />
+                  </Button>
+                  <a
+                    :href="`/status/${sp.slug}`"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="icon-close"
+                    aria-label="Open status page"
+                  >
+                    <ExternalLink :size="14" aria-hidden="true" />
+                  </a>
+                  <Button
+                    v-if="auth.canWrite"
+                    type="button"
+                    data-variant="danger"
+                    aria-label="Delete status page"
+                    @click="handleDeleteStatusPage(sp)"
+                  >
+                    <Trash2 :size="14" aria-hidden="true" />
+                  </Button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </TabsPanel>
 
@@ -773,6 +949,86 @@ async function copyText(val: string, key: string) {
       </TabsPanel>
     </Tabs>
 
+    <Dialog v-model:open="statusDialogOpen">
+      <DialogBackdrop />
+      <DialogContent class="modal-dialog">
+        <div class="drawer-head">
+          <div>
+            <DialogTitle>Create Public Status Page</DialogTitle>
+            <DialogDescription class="muted">
+              Only component names, operational status, and selected incident titles are exposed publicly.
+            </DialogDescription>
+          </div>
+          <DialogClose class="icon-close" aria-label="Close dialog">
+            <X :size="16" aria-hidden="true" />
+          </DialogClose>
+        </div>
+
+        <form class="form-stack" @submit.prevent="handleCreateStatusPage">
+          <div v-if="statusError" class="banner-error" role="alert">{{ statusError }}</div>
+
+          <Field name="sp-title">
+            <FieldLabel>Page Title</FieldLabel>
+            <Input v-model="statusTitle" placeholder="Acme Platform Status" required />
+          </Field>
+
+          <Field name="sp-slug">
+            <FieldLabel>URL Slug</FieldLabel>
+            <Input v-model="statusSlug" placeholder="acme-status" required />
+            <FieldDescription>Published at /status/&lt;slug&gt;</FieldDescription>
+          </Field>
+
+          <Field name="sp-desc">
+            <FieldLabel>Description (optional)</FieldLabel>
+            <Input v-model="statusDescription" placeholder="Live uptime and incident updates." />
+          </Field>
+
+          <div class="switch-row">
+            <strong>Publicly accessible</strong>
+            <Switch v-model:checked="statusPublic" aria-label="Publicly accessible">
+              <SwitchThumb />
+            </Switch>
+          </div>
+
+          <div class="switch-row">
+            <strong>Show recent incidents</strong>
+            <Switch v-model:checked="statusShowIncidents" aria-label="Show recent incidents">
+              <SwitchThumb />
+            </Switch>
+          </div>
+
+          <div v-if="(uptimeChecks?.length ?? 0) > 0" class="pick-group">
+            <span class="muted">Uptime Checks</span>
+            <label v-for="chk in uptimeChecks" :key="chk.id" class="check-row">
+              <input
+                type="checkbox"
+                :checked="statusCheckIds.includes(chk.id)"
+                @change="statusCheckIds = toggleListId(statusCheckIds, chk.id)"
+              />
+              <span>{{ chk.name }}</span>
+            </label>
+          </div>
+
+          <div v-if="(servers?.length ?? 0) > 0" class="pick-group">
+            <span class="muted">Servers</span>
+            <label v-for="srv in servers" :key="srv.id" class="check-row">
+              <input
+                type="checkbox"
+                :checked="statusServerIds.includes(srv.id)"
+                @change="statusServerIds = toggleListId(statusServerIds, srv.id)"
+              />
+              <span>{{ srv.name }}</span>
+            </label>
+          </div>
+
+          <div class="dialog-actions">
+            <DialogClose class="btn btn-ghost">Cancel</DialogClose>
+            <Button type="submit" data-variant="solid" :pending="statusSaving">Create Status Page</Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+
     <Dialog v-model:open="inviteDialogOpen">
       <DialogBackdrop />
       <DialogContent class="modal-dialog">
@@ -1025,6 +1281,20 @@ async function copyText(val: string, key: string) {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--bg-subtle);
+}
+
+.pick-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.88rem;
+  cursor: pointer;
 }
 
 .table-wrap {
