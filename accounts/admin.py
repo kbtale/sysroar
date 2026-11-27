@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Company, User
+from .models import Company, CompanyInvite, User
 
 
 class TenantAwareModelAdmin(admin.ModelAdmin):
@@ -35,6 +35,13 @@ class CompanyAdmin(admin.ModelAdmin):
 
 @admin.register(User)
 class UserAdmin(admin.ModelAdmin):
-    list_display = ('username', 'company', 'is_active', 'is_staff')
-    list_filter = ('is_active', 'is_staff', 'company')
+    list_display = ('username', 'company', 'role', 'is_active', 'is_staff')
+    list_filter = ('role', 'is_active', 'is_staff', 'company')
     search_fields = ('username', 'email')
+
+
+@admin.register(CompanyInvite)
+class CompanyInviteAdmin(TenantAwareModelAdmin):
+    list_display = ('email', 'company', 'role', 'prefix', 'expires_at', 'accepted_at', 'revoked_at')
+    list_filter = ('role', 'company')
+    readonly_fields = ('id', 'prefix', 'token_hash', 'created_at', 'accepted_at', 'revoked_at')

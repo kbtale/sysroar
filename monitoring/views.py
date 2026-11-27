@@ -2,20 +2,26 @@ from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from accounts.mixins import TenantScopedViewSetMixin
+from accounts.permissions import IsCompanyAdmin, ReadOnlyOrCompanyMember
 from monitoring.heartbeat import get_live_heartbeats
-from .models import AgentKey, EnrollmentToken, Server
+from .models import AgentKey, AlertRule, EnrollmentToken, Server
 from .serializers import (
     AgentKeySerializer,
     AgentKeyServerActionSerializer,
+    AlertRuleSerializer,
     EnrollmentTokenCreateSerializer,
     EnrollmentTokenSerializer,
     ServerSerializer,
 )
 
 
-class ServerViewSet(TenantScopedViewSetMixin, viewsets.ReadOnlyModelViewSet):
+class ServerViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
     queryset = Server.unscoped.all().order_by('created_at', 'id')
     serializer_class = ServerSerializer
+    permission_classes = [ReadOnlyOrCompanyMember]
+
+    def perform_create(self, serializer):
+        serializer.save(company_id=self.request.user.company_id)
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
@@ -29,6 +35,15 @@ class ServerViewSet(TenantScopedViewSetMixin, viewsets.ReadOnlyModelViewSet):
         return Response(serializer.data)
 
 
+class AlertRuleViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
+    queryset = AlertRule.unscoped.select_related('server').all().order_by('id')
+    serializer_class = AlertRuleSerializer
+    permission_classes = [ReadOnlyOrCompanyMember]
+
+    def perform_create(self, serializer):
+        serializer.save(company_id=self.request.user.company_id)
+
+
 class EnrollmentTokenViewSet(
     TenantScopedViewSetMixin,
     mixins.ListModelMixin,
@@ -38,6 +53,7 @@ class EnrollmentTokenViewSet(
 ):
     queryset = EnrollmentToken.unscoped.all().order_by('-created_at', 'id')
     serializer_class = EnrollmentTokenSerializer
+    permission_classes = [IsCompanyAdmin]
 
     def create(self, request, *args, **kwargs):
         company = getattr(request.user, 'company', None)
@@ -72,6 +88,7 @@ class AgentKeyViewSet(
 ):
     queryset = AgentKey.unscoped.all().order_by('-created_at', 'id')
     serializer_class = AgentKeySerializer
+    permission_classes = [IsCompanyAdmin]
 
     def get_queryset(self):
         qs = super().get_queryset()

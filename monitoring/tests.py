@@ -585,12 +585,14 @@ class AgentKeyAndEnrollmentTests(TestCase):
             email='alpha@example.com',
             password='secure-password-123',
             company=self.company_a,
+            role='admin',
         )
         self.user_b = user_model.objects.create_user(
             username='beta_admin',
             email='beta@example.com',
             password='secure-password-123',
             company=self.company_b,
+            role='admin',
         )
         self.token_a = Token.objects.create(user=self.user_a)
         self.token_b = Token.objects.create(user=self.user_b)

@@ -2,7 +2,7 @@ from datetime import timedelta
 from django.utils import timezone
 from rest_framework import serializers
 from monitoring.heartbeat import compute_offline_threshold_seconds, get_live_heartbeats
-from .models import AgentKey, EnrollmentToken, Server
+from .models import AgentKey, AlertRule, EnrollmentToken, Server
 
 
 class ServerSerializer(serializers.ModelSerializer):
@@ -110,3 +110,32 @@ class AgentKeySerializer(serializers.ModelSerializer):
 
 class AgentKeyServerActionSerializer(serializers.Serializer):
     server = serializers.UUIDField()
+
+
+class AlertRuleSerializer(serializers.ModelSerializer):
+    server = serializers.PrimaryKeyRelatedField(queryset=Server.unscoped.all())
+
+    class Meta:
+        model = AlertRule
+        fields = [
+            'id',
+            'server',
+            'metric_type',
+            'operator',
+            'severity',
+            'aggregation',
+            'threshold_value',
+            'hysteresis_margin',
+            'duration_minutes',
+            'is_active',
+            'notification_type',
+            'notification_target',
+        ]
+        read_only_fields = ['id']
+
+    def validate_server(self, value):
+        request = self.context.get('request')
+        company_id = getattr(getattr(request, 'user', None), 'company_id', None)
+        if not company_id or value.company_id != company_id:
+            raise serializers.ValidationError('Server does not exist or access denied.')
+        return value

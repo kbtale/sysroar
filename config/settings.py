@@ -277,6 +277,8 @@ LOGGING = build_logging_config(
 
 METRICS_AUTH_TOKEN = env('METRICS_AUTH_TOKEN', default='')
 READY_MAX_STREAM_LAG = env.int('READY_MAX_STREAM_LAG', default=10000)
+OPEN_REGISTRATION = env.bool('OPEN_REGISTRATION', default=False)
+FRONTEND_URL = env('FRONTEND_URL', default='http://localhost:5173')
 SENTRY_DSN = env('SENTRY_DSN', default='')
 SENTRY_TRACES_SAMPLE_RATE = env.float('SENTRY_TRACES_SAMPLE_RATE', default=0.0)
 
