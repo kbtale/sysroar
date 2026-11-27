@@ -442,7 +442,7 @@ fn read_load_average() -> [f64; 3] {
 
 #[cfg(target_os = "linux")]
 fn read_cpu_ticks_snapshot() -> Option<CpuTicksSnapshot> {
-    use procfs::Current;
+    use procfs::CurrentSI;
 
     let stats = procfs::KernelStats::current().ok()?;
     let cpu = stats.total;
