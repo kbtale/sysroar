@@ -19,6 +19,7 @@ from .models import (
     EnrollmentToken,
     Incident,
     IncidentComment,
+    MaintenanceWindow,
     NotificationChannel,
     Server,
     UptimeCheck,
@@ -36,6 +37,7 @@ from .serializers import (
     IncidentCommentSerializer,
     IncidentSerializer,
     IncidentSilenceActionSerializer,
+    MaintenanceWindowSerializer,
     NotificationChannelSerializer,
     ServerSerializer,
     UptimeCheckResultSerializer,
@@ -766,3 +768,41 @@ class UptimeCheckViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
         )
         rows.reverse()
         return Response(UptimeCheckResultSerializer(rows, many=True).data, status=status.HTTP_200_OK)
+
+
+class MaintenanceWindowViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
+    queryset = MaintenanceWindow.unscoped.select_related('server').all().order_by('-starts_at', 'id')
+    serializer_class = MaintenanceWindowSerializer
+    permission_classes = [ReadOnlyOrCompanyMember]
+
+    def perform_create(self, serializer):
+        window = serializer.save(company_id=self.request.user.company_id, created_by=self.request.user)
+        record_audit_event(
+            self.request,
+            action='maintenance.created',
+            resource_type='maintenance_window',
+            resource_id=str(window.id),
+            metadata={'name': window.name, 'scope': window.scope, 'recurrence': window.recurrence},
+        )
+
+    def perform_update(self, serializer):
+        window = serializer.save()
+        record_audit_event(
+            self.request,
+            action='maintenance.updated',
+            resource_type='maintenance_window',
+            resource_id=str(window.id),
+            metadata={'name': window.name, 'is_active': window.is_active},
+        )
+
+    def perform_destroy(self, instance):
+        wid = str(instance.id)
+        name = instance.name
+        instance.delete()
+        record_audit_event(
+            self.request,
+            action='maintenance.deleted',
+            resource_type='maintenance_window',
+            resource_id=wid,
+            metadata={'name': name},
+        )

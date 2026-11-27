@@ -17,6 +17,7 @@ from .models import (
     EnrollmentToken,
     Incident,
     IncidentComment,
+    MaintenanceWindow,
     NotificationChannel,
     Server,
     UptimeCheck,
@@ -503,6 +504,61 @@ class AlertSilenceSerializer(serializers.ModelSerializer):
         if not company_id or value.company_id != company_id:
             raise serializers.ValidationError('Server does not exist or access denied.')
         return value
+
+
+class MaintenanceWindowSerializer(serializers.ModelSerializer):
+    server = serializers.PrimaryKeyRelatedField(queryset=Server.unscoped.all(), required=False, allow_null=True)
+    server_name = serializers.SerializerMethodField()
+    is_currently_active = serializers.SerializerMethodField()
+
+    class Meta:
+        model = MaintenanceWindow
+        fields = [
+            'id',
+            'name',
+            'scope',
+            'server',
+            'server_name',
+            'tag_filter',
+            'recurrence',
+            'starts_at',
+            'ends_at',
+            'reason',
+            'is_active',
+            'is_currently_active',
+            'created_at',
+        ]
+        read_only_fields = ['id', 'server_name', 'is_currently_active', 'created_at']
+
+    def get_server_name(self, obj) -> str | None:
+        return obj.server.name if obj.server_id else None
+
+    def get_is_currently_active(self, obj) -> bool:
+        return obj.matches_time()
+
+    def validate_server(self, value):
+        if value is None:
+            return None
+        company_id = getattr(getattr(self.context.get('request'), 'user', None), 'company_id', None)
+        if not company_id or value.company_id != company_id:
+            raise serializers.ValidationError('Server does not exist or access denied.')
+        return value
+
+    def validate(self, attrs):
+        scope = attrs.get('scope', getattr(self.instance, 'scope', 'all'))
+        server = attrs.get('server', getattr(self.instance, 'server', None))
+        tag_filter = (attrs.get('tag_filter', getattr(self.instance, 'tag_filter', '')) or '').strip().lower()
+        attrs['tag_filter'] = tag_filter
+        starts_at = attrs.get('starts_at', getattr(self.instance, 'starts_at', None))
+        ends_at = attrs.get('ends_at', getattr(self.instance, 'ends_at', None))
+
+        if starts_at and ends_at and ends_at <= starts_at:
+            raise serializers.ValidationError({'ends_at': 'End time must be after start time.'})
+        if scope == 'server' and server is None:
+            raise serializers.ValidationError({'server': 'Server is required when scope is server.'})
+        if scope == 'tag' and not tag_filter:
+            raise serializers.ValidationError({'tag_filter': 'Tag filter is required when scope is tag.'})
+        return attrs
 
 
 class AuditLogSerializer(serializers.ModelSerializer):
