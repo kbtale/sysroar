@@ -12,6 +12,7 @@ from accounts.mixins import TenantScopedViewSetMixin
 from accounts.permissions import IsCompanyAdmin, ReadOnlyOrCompanyMember
 from monitoring.audit import record_audit_event
 from monitoring.heartbeat import compute_offline_threshold_seconds, get_live_heartbeats
+from telemetry.anomalies import compute_server_anomalies
 from telemetry.models import MetricLog
 from .models import (
     AgentKey,
@@ -89,7 +90,8 @@ def _compute_server_overlays(company_id, servers):
         for key in sparklines:
             sparklines[key].reverse()
 
-    return live_heartbeats, alert_statuses, dict(sparklines)
+    anomalies = compute_server_anomalies(company_id, server_ids) if server_ids and company_id else {}
+    return live_heartbeats, alert_statuses, dict(sparklines), anomalies
 
 
 class ServerViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
@@ -132,7 +134,7 @@ class ServerViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
         company_id = getattr(request.user, 'company_id', None)
-        live_heartbeats, alert_statuses, sparklines = _compute_server_overlays(
+        live_heartbeats, alert_statuses, sparklines, anomalies = _compute_server_overlays(
             company_id,
             [instance],
         )
@@ -152,6 +154,7 @@ class ServerViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
             'alert_statuses': alert_statuses,
             'sparklines': sparklines,
             'latest_details': latest_details,
+            'anomalies': anomalies,
         }
         return Response(self.get_serializer(instance, context=context).data)
 
@@ -159,7 +162,7 @@ class ServerViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
         queryset = self.filter_queryset(self.get_queryset())
         page = self.paginate_queryset(queryset)
         items = list(page) if page is not None else list(queryset)
-        live_heartbeats, alert_statuses, sparklines = _compute_server_overlays(
+        live_heartbeats, alert_statuses, sparklines, anomalies = _compute_server_overlays(
             getattr(request.user, 'company_id', None),
             items,
         )
@@ -168,6 +171,7 @@ class ServerViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
             'live_heartbeats': live_heartbeats,
             'alert_statuses': alert_statuses,
             'sparklines': sparklines,
+            'anomalies': anomalies,
         }
         serializer = self.get_serializer(items, many=True, context=context)
         if page is not None:

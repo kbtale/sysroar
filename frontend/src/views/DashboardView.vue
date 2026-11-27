@@ -442,6 +442,13 @@ function clearFilters() {
             >
               {{ item.record.alert_status }}
             </span>
+            <span
+              v-if="Array.isArray((item.record as Record<string, unknown>).anomalies) && ((item.record as Record<string, unknown>).anomalies as unknown[]).length > 0"
+              class="badge badge-warning"
+              :title="(((item.record as Record<string, unknown>).anomalies as Array<{ message: string }>).map((a) => a.message).join(' | '))"
+            >
+              Unusual for this server
+            </span>
           </div>
         </div>
 
@@ -530,6 +537,13 @@ function clearFilters() {
             <td>
               <span class="badge" :class="`badge-${item.record.alert_status || 'ok'}`">
                 {{ item.record.alert_status || 'ok' }}
+              </span>
+              <span
+                v-if="Array.isArray((item.record as Record<string, unknown>).anomalies) && ((item.record as Record<string, unknown>).anomalies as unknown[]).length > 0"
+                class="badge badge-warning"
+                :title="(((item.record as Record<string, unknown>).anomalies as Array<{ message: string }>).map((a) => a.message).join(' | '))"
+              >
+                Unusual
               </span>
             </td>
             <td class="num tabular">{{ formatPercent(item.latestCpu) }}</td>

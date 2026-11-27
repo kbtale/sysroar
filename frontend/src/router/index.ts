@@ -49,6 +49,11 @@ const router = createRouter({
           component: () => import('../views/UptimeView.vue'),
         },
         {
+          path: 'logs',
+          name: 'logs',
+          component: () => import('../views/LogsView.vue'),
+        },
+        {
           path: 'alerts',
           name: 'alerts',
           component: () => import('../views/AlertsView.vue'),
