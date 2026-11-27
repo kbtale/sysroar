@@ -727,8 +727,11 @@ function refreshCurrent() {
                   </span>
                 </td>
                 <td>
-                  <router-link :to="`/servers/${inc.server}`" class="server-link">
+                  <router-link v-if="inc.server" :to="`/servers/${inc.server}`" class="server-link">
                     {{ inc.server_name || serverNameById[inc.server] || inc.server }}
+                  </router-link>
+                  <router-link v-else to="/uptime" class="server-link">
+                    {{ inc.server_name || 'Uptime check' }}
                   </router-link>
                 </td>
                 <td>
@@ -971,7 +974,10 @@ function refreshCurrent() {
             <div>
               <DrawerTitle>{{ selectedIncident.title }}</DrawerTitle>
               <DrawerDescription class="muted">
-                {{ selectedIncident.server_name || serverNameById[selectedIncident.server] }}
+                {{
+                  selectedIncident.server_name ||
+                  (selectedIncident.server ? serverNameById[selectedIncident.server] : 'Uptime check')
+                }}
                 - Opened {{ formatDateTime(selectedIncident.opened_at) }}
               </DrawerDescription>
             </div>

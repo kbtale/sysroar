@@ -21,6 +21,8 @@ from .models import (
     IncidentComment,
     NotificationChannel,
     Server,
+    UptimeCheck,
+    UptimeCheckResult,
 )
 from .serializers import (
     AgentKeySerializer,
@@ -36,6 +38,8 @@ from .serializers import (
     IncidentSilenceActionSerializer,
     NotificationChannelSerializer,
     ServerSerializer,
+    UptimeCheckResultSerializer,
+    UptimeCheckSerializer,
 )
 
 
@@ -642,3 +646,123 @@ class AuditLogViewSet(TenantScopedViewSetMixin, viewsets.ReadOnlyModelViewSet):
         if resource_type:
             qs = qs.filter(resource_type=resource_type)
         return qs
+
+
+def _compute_uptime_overlays(company_id, checks):
+    check_ids = [c.id for c in checks]
+    uptime_24h_map: dict[str, float] = {}
+    recent_bars_map: dict[str, list[str]] = defaultdict(list)
+    if not check_ids or not company_id:
+        return uptime_24h_map, dict(recent_bars_map)
+
+    cutoff = timezone.now() - timedelta(hours=24)
+    rows = (
+        UptimeCheckResult.unscoped.filter(
+            company_id=company_id,
+            check_obj_id__in=check_ids,
+            checked_at__gte=cutoff,
+        )
+        .order_by('-checked_at')
+        .values_list('check_obj_id', 'status')[: len(check_ids) * 100]
+    )
+    totals: dict[str, int] = defaultdict(int)
+    ups: dict[str, int] = defaultdict(int)
+    for cid, st in rows:
+        key = str(cid)
+        totals[key] += 1
+        if st in ('up', 'degraded'):
+            ups[key] += 1
+        if len(recent_bars_map[key]) < 30:
+            recent_bars_map[key].append(st)
+
+    for key, total in totals.items():
+        if total > 0:
+            uptime_24h_map[key] = round((ups[key] / total) * 100.0, 2)
+    for key in recent_bars_map:
+        recent_bars_map[key].reverse()
+
+    return uptime_24h_map, dict(recent_bars_map)
+
+
+class UptimeCheckViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
+    queryset = UptimeCheck.unscoped.select_related('channel').all().order_by('name', 'id')
+    serializer_class = UptimeCheckSerializer
+    permission_classes = [ReadOnlyOrCompanyMember]
+
+    def perform_create(self, serializer):
+        check_obj = serializer.save(company_id=self.request.user.company_id)
+        record_audit_event(
+            self.request,
+            action='uptime_check.created',
+            resource_type='uptime_check',
+            resource_id=str(check_obj.id),
+            metadata={'name': check_obj.name, 'check_type': check_obj.check_type},
+        )
+
+    def perform_update(self, serializer):
+        check_obj = serializer.save()
+        record_audit_event(
+            self.request,
+            action='uptime_check.updated',
+            resource_type='uptime_check',
+            resource_id=str(check_obj.id),
+            metadata={'name': check_obj.name, 'is_active': check_obj.is_active},
+        )
+
+    def perform_destroy(self, instance):
+        cid = str(instance.id)
+        name = instance.name
+        instance.delete()
+        record_audit_event(
+            self.request,
+            action='uptime_check.deleted',
+            resource_type='uptime_check',
+            resource_id=cid,
+            metadata={'name': name},
+        )
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        items = list(page) if page is not None else list(queryset)
+        uptime_map, bars_map = _compute_uptime_overlays(getattr(request.user, 'company_id', None), items)
+        context = {
+            **self.get_serializer_context(),
+            'uptime_24h_map': uptime_map,
+            'recent_bars_map': bars_map,
+        }
+        serializer = self.get_serializer(items, many=True, context=context)
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        uptime_map, bars_map = _compute_uptime_overlays(getattr(request.user, 'company_id', None), [instance])
+        context = {
+            **self.get_serializer_context(),
+            'uptime_24h_map': uptime_map,
+            'recent_bars_map': bars_map,
+        }
+        return Response(self.get_serializer(instance, context=context).data)
+
+    @action(detail=True, methods=['post'])
+    def run(self, request, pk=None):
+        from .uptime import execute_uptime_check
+
+        check_obj = self.get_object()
+        result = execute_uptime_check(check_obj)
+        return Response(UptimeCheckResultSerializer(result).data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['get'])
+    def results(self, request, pk=None):
+        check_obj = self.get_object()
+        rows = list(
+            UptimeCheckResult.unscoped.filter(
+                company_id=check_obj.company_id,
+                check_obj=check_obj,
+            )
+            .order_by('-checked_at')[:100]
+        )
+        rows.reverse()
+        return Response(UptimeCheckResultSerializer(rows, many=True).data, status=status.HTTP_200_OK)
