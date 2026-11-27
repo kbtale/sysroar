@@ -451,6 +451,15 @@ pre,
   opacity: 0;
 }
 
+[data-slot='dialog-backdrop'][data-ending-style],
+[data-slot='alert-dialog-backdrop'][data-ending-style],
+[data-slot='drawer-backdrop'][data-ending-style],
+[data-slot='dialog-content'][data-ending-style],
+[data-slot='alert-dialog-content'][data-ending-style],
+[data-slot='drawer-content'][data-ending-style] {
+  pointer-events: none;
+}
+
 [data-slot='dialog-content'],
 [data-slot='alert-dialog-content'] {
   position: fixed;

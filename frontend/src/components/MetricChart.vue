@@ -59,6 +59,7 @@ const option = computed(() => ({
 .spark-wrap {
   width: 100%;
   min-width: 0;
+  overflow: hidden;
 }
 
 .spark-chart {
