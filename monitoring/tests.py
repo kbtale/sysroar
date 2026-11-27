@@ -741,3 +741,149 @@ class AgentKeyAndEnrollmentTests(TestCase):
         new_agent = APIClient()
         new_agent.credentials(HTTP_AUTHORIZATION=f'AgentKey {new_key}')
         self.assertEqual(new_agent.get(reverse('telemetry-config')).status_code, 200)
+
+
+class WebhookSsrfAndHmacTests(TestCase):
+    def setUp(self):
+        user_model = get_user_model()
+        self.company_a = Company.objects.create(name='Webhook Tenant A')
+        self.company_b = Company.objects.create(name='Webhook Tenant B')
+        self.user_a = user_model.objects.create_user(
+            username='wh_user_a',
+            email='wha@example.com',
+            password='VeryStrongPassword!99',
+            company=self.company_a,
+            role='member',
+        )
+        self.user_b = user_model.objects.create_user(
+            username='wh_user_b',
+            email='whb@example.com',
+            password='VeryStrongPassword!99',
+            company=self.company_b,
+            role='member',
+        )
+        self.server_a = Server.unscoped.create(name='wh-node-a', company=self.company_a)
+        self.client_a = APIClient()
+        self.client_a.force_authenticate(user=self.user_a)
+        self.client_b = APIClient()
+        self.client_b.force_authenticate(user=self.user_b)
+
+    def test_ssrf_guard_blocks_private_loopback_metadata_and_non_http_schemes(self):
+        from telemetry.notifications.ssrf import SSRFBlockedError, validate_webhook_url
+
+        blocked_urls = [
+            'http://127.0.0.1/hook',
+            'http://127.0.0.1:8000/admin/',
+            'http://[::1]/hook',
+            'http://10.0.0.1/internal',
+            'http://172.16.0.1/internal',
+            'http://192.168.1.1/router',
+            'http://169.254.169.254/latest/meta-data/',
+            'http://100.64.0.1/cgnat',
+            'http://0.0.0.0/zero',
+            'http://[::ffff:127.0.0.1]/mapped',
+            'file:///etc/passwd',
+            'gopher://127.0.0.1:6379/_INFO',
+            'https://user:pass@93.184.216.34/hook',
+        ]
+        for bad_url in blocked_urls:
+            with self.subTest(url=bad_url):
+                with self.assertRaises(SSRFBlockedError):
+                    validate_webhook_url(bad_url)
+
+        with patch(
+            'telemetry.notifications.ssrf.socket.getaddrinfo',
+            return_value=[(2, 1, 6, '', ('169.254.169.254', 80))],
+        ):
+            with self.assertRaises(SSRFBlockedError):
+                validate_webhook_url('http://rebind.attacker.example/hook')
+
+        api_blocked = self.client_a.post(
+            '/api/monitoring/rules/',
+            {
+                'server': str(self.server_a.id),
+                'metric_type': 'cpu',
+                'threshold_value': 90.0,
+                'notification_type': 'WEBHOOK',
+                'notification_target': 'http://169.254.169.254/latest/meta-data/',
+            },
+            format='json',
+        )
+        self.assertEqual(api_blocked.status_code, 400)
+
+    def test_webhook_hmac_signature_and_test_endpoint_with_cross_tenant_isolation(self):
+        from unittest.mock import MagicMock
+        from telemetry.notifications.webhook import WebhookStrategy, verify_webhook_signature
+
+        public_addr = [(2, 1, 6, '', ('93.184.216.34', 443))]
+        with patch('telemetry.notifications.ssrf.socket.getaddrinfo', return_value=public_addr):
+            create_resp = self.client_a.post(
+                '/api/monitoring/rules/',
+                {
+                    'server': str(self.server_a.id),
+                    'metric_type': 'cpu',
+                    'threshold_value': 85.0,
+                    'notification_type': 'WEBHOOK',
+                    'notification_target': 'https://hooks.example.com/alerts',
+                },
+                format='json',
+            )
+        self.assertEqual(create_resp.status_code, 201)
+        rule_id = create_resp.data['id']
+        secret = create_resp.data['webhook_secret']
+        self.assertTrue(secret.startswith('whsec_'))
+        self.assertTrue(create_resp.data['has_webhook_secret'])
+
+        get_resp = self.client_a.get(f'/api/monitoring/rules/{rule_id}/')
+        self.assertEqual(get_resp.status_code, 200)
+        self.assertNotIn('webhook_secret', get_resp.data)
+        self.assertTrue(get_resp.data['has_webhook_secret'])
+
+        cross_test = self.client_b.post(f'/api/monitoring/rules/{rule_id}/test-webhook/')
+        self.assertEqual(cross_test.status_code, 404)
+
+        captured = {}
+        fake_response = MagicMock(status_code=200)
+        fake_response.raise_for_status = MagicMock()
+
+        def fake_post(url, data, headers, timeout=(3.0, 5.0)):
+            captured['url'] = url
+            captured['body'] = data
+            captured['headers'] = headers
+            return fake_response
+
+        with patch('telemetry.notifications.webhook.send_safe_webhook_post', side_effect=fake_post):
+            test_resp = self.client_a.post(f'/api/monitoring/rules/{rule_id}/test-webhook/')
+        self.assertEqual(test_resp.status_code, 200)
+        self.assertTrue(test_resp.data['delivered'])
+        self.assertEqual(captured['headers']['X-SysRoar-Event'], 'webhook_test')
+        self.assertTrue(
+            verify_webhook_signature(
+                secret=secret,
+                timestamp=captured['headers']['X-SysRoar-Timestamp'],
+                raw_body=captured['body'],
+                signature_header=captured['headers']['X-SysRoar-Signature-256'],
+            )
+        )
+        self.assertFalse(
+            verify_webhook_signature(
+                secret='wrong-secret',
+                timestamp=captured['headers']['X-SysRoar-Timestamp'],
+                raw_body=captured['body'],
+                signature_header=captured['headers']['X-SysRoar-Signature-256'],
+            )
+        )
+
+        redirect_resp = MagicMock(status_code=302)
+        rule = AlertRule.unscoped.get(id=rule_id)
+        with (
+            patch('telemetry.notifications.webhook.send_safe_webhook_post', return_value=redirect_resp),
+            patch('monitoring.tasks.record_system_event.delay'),
+        ):
+            self.assertFalse(
+                WebhookStrategy().send_alert(
+                    self.server_a,
+                    rule,
+                    {'value': 95.0, 'timestamp': timezone.now().isoformat()},
+                )
+            )

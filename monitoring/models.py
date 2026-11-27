@@ -89,6 +89,12 @@ class AlertRule(TenantModel):
         blank=True,
         null=True,
     )
+    webhook_secret = models.CharField(max_length=128, blank=True, default='')
+
+    def save(self, *args, **kwargs):
+        if self.notification_type == 'WEBHOOK' and not self.webhook_secret:
+            self.webhook_secret = f'whsec_{secrets.token_urlsafe(32)}'
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return (
