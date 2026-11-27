@@ -3550,12 +3550,19 @@ components:
           type: object
           additionalProperties: {}
           readOnly: true
+        anomalies:
+          type: array
+          items:
+            type: object
+            additionalProperties: {}
+          readOnly: true
         created_at:
           type: string
           format: date-time
           readOnly: true
       required:
       - alert_status
+      - anomalies
       - created_at
       - id
       - ip_address

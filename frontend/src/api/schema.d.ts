@@ -1741,6 +1741,9 @@ export interface components {
             readonly latest_details: {
                 [key: string]: unknown;
             };
+            readonly anomalies: {
+                [key: string]: unknown;
+            }[];
             /** Format: date-time */
             readonly created_at: string;
         };

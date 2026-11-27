@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useQuery } from '@tanstack/vue-query'
 import {
   Activity,
   Bell,
@@ -9,6 +10,7 @@ import {
   LogOut,
   Menu as MenuIcon,
   Moon,
+  ScrollText,
   Server,
   Settings,
   ShieldAlert,
@@ -25,6 +27,7 @@ import {
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from '@ui-sdk/vue/menu'
 import { Switch, SwitchThumb } from '@ui-sdk/vue/switch'
 import { toast } from '@ui-sdk/vue/toast'
+import { api } from '../api/client'
 import { useAuthStore } from '../stores/auth'
 import { useTelemetryStore } from '../stores/telemetry'
 import { useThemeStore } from '../stores/theme'
@@ -46,12 +49,32 @@ onUnmounted(() => {
   telemetry.disconnectAll()
 })
 
-const navItems = [
-  { to: '/', label: 'Fleet', icon: Server, match: (path: string) => path === '/' || path.startsWith('/servers/') },
-  { to: '/uptime', label: 'Uptime', icon: Globe, match: (path: string) => path.startsWith('/uptime') },
-  { to: '/alerts', label: 'Alerts', icon: Bell, match: (path: string) => path.startsWith('/alerts') },
-  { to: '/settings', label: 'Settings', icon: Settings, match: (path: string) => path.startsWith('/settings') },
-]
+const { data: logsStatus } = useQuery<{ enabled: boolean }>({
+  queryKey: ['logs-status'],
+  enabled: computed(() => auth.isAuthenticated),
+  staleTime: 60000,
+  retry: false,
+  queryFn: async () => {
+    try {
+      return (await api.get<{ enabled: boolean }>('/api/logs/status/')).data
+    } catch {
+      return { enabled: false }
+    }
+  },
+})
+
+const navItems = computed(() => {
+  const items = [
+    { to: '/', label: 'Fleet', icon: Server, match: (path: string) => path === '/' || path.startsWith('/servers/') },
+    { to: '/uptime', label: 'Uptime', icon: Globe, match: (path: string) => path.startsWith('/uptime') },
+    { to: '/alerts', label: 'Alerts', icon: Bell, match: (path: string) => path.startsWith('/alerts') },
+  ]
+  if (logsStatus.value?.enabled) {
+    items.push({ to: '/logs', label: 'Logs', icon: ScrollText, match: (path: string) => path.startsWith('/logs') })
+  }
+  items.push({ to: '/settings', label: 'Settings', icon: Settings, match: (path: string) => path.startsWith('/settings') })
+  return items
+})
 
 async function handleUserAction(action: string) {
   if (action === 'settings') {

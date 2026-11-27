@@ -36,6 +36,7 @@ class ServerSerializer(serializers.ModelSerializer):
     alert_status = serializers.SerializerMethodField()
     sparkline = serializers.SerializerMethodField()
     latest_details = serializers.SerializerMethodField()
+    anomalies = serializers.SerializerMethodField()
 
     class Meta:
         model = Server
@@ -59,6 +60,7 @@ class ServerSerializer(serializers.ModelSerializer):
             'alert_status',
             'sparkline',
             'latest_details',
+            'anomalies',
             'created_at',
         ]
         read_only_fields = [
@@ -68,6 +70,7 @@ class ServerSerializer(serializers.ModelSerializer):
             'alert_status',
             'sparkline',
             'latest_details',
+            'anomalies',
             'created_at',
         ]
 
@@ -137,6 +140,12 @@ class ServerSerializer(serializers.ModelSerializer):
         if details_map is not None:
             return details_map.get(str(obj.id), {})
         return {}
+
+    def get_anomalies(self, obj) -> list[dict]:
+        anomaly_map = self.context.get('anomalies')
+        if anomaly_map is not None:
+            return anomaly_map.get(str(obj.id), [])
+        return []
 
 
 class EnrollmentTokenSerializer(serializers.ModelSerializer):

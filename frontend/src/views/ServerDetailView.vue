@@ -55,8 +55,18 @@ import {
 } from '../api/client'
 import { useAuthStore } from '../stores/auth'
 import { useTelemetryStore } from '../stores/telemetry'
+import LogViewer from '../components/LogViewer.vue'
 import TimeSeriesChart from '../components/TimeSeriesChart.vue'
 import { formatBytes, formatRelativeTime, formatUptime } from '../utils/format'
+
+interface ServerAnomalyHint {
+  metric: string
+  label: string
+  current: number
+  baseline: number
+  z_score: number
+  message: string
+}
 
 const VALID_RANGES = ['15m', '1h', '6h', '24h', '7d', '30d'] as const
 type RangeKey = (typeof VALID_RANGES)[number]
@@ -90,6 +100,24 @@ const {
     return resp.data
   },
   refetchInterval: 30000,
+})
+
+const { data: logsStatus } = useQuery<{ enabled: boolean }>({
+  queryKey: ['logs-status'],
+  staleTime: 60000,
+  retry: false,
+  queryFn: async () => {
+    try {
+      return (await api.get<{ enabled: boolean }>('/api/logs/status/')).data
+    } catch {
+      return { enabled: false }
+    }
+  },
+})
+
+const serverAnomalies = computed<ServerAnomalyHint[]>(() => {
+  const raw = (server.value as Record<string, unknown> | undefined)?.anomalies
+  return Array.isArray(raw) ? (raw as ServerAnomalyHint[]) : []
 })
 
 const {
@@ -379,6 +407,14 @@ function handleRefreshAll() {
             >
               {{ server.alert_status }}
             </span>
+            <span
+              v-for="hint in serverAnomalies"
+              :key="hint.metric"
+              class="badge badge-warning"
+              :title="hint.message"
+            >
+              Unusual: {{ hint.message }}
+            </span>
           </div>
 
           <div v-if="serverTags.length > 0" class="tag-row">
@@ -652,6 +688,13 @@ function handleRefreshAll() {
             </div>
           </TabsPanel>
         </Tabs>
+      </section>
+
+      <section v-if="logsStatus?.enabled && serverId" class="details-section card" aria-label="Host logs">
+        <header class="details-head">
+          <h2>Host Logs</h2>
+        </header>
+        <LogViewer :server-id="serverId" />
       </section>
     </template>
 
