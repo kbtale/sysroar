@@ -9,7 +9,7 @@ import requests
 from django.utils import timezone
 from telemetry.notifications.dispatcher import NotificationDispatcher
 from telemetry.notifications.ssrf import SSRFBlockedError, validate_ip_address, validate_webhook_url
-from .models import AlertRule, Incident, Server, UptimeCheck, UptimeCheckResult
+from .models import AlertRule, Incident, MaintenanceWindow, Server, UptimeCheck, UptimeCheckResult
 
 logger = logging.getLogger(__name__)
 
@@ -294,6 +294,13 @@ def execute_uptime_check(check_obj: UptimeCheck, now=None) -> UptimeCheckResult:
     )
 
     if outcome['status'] in ('down', 'degraded'):
+        if MaintenanceWindow.is_in_maintenance(
+            company_id=check_obj.company_id,
+            server=None,
+            tags=check_obj.tags,
+            now=now,
+        ):
+            return result
         open_inc = Incident.unscoped.filter(
             company_id=check_obj.company_id,
             uptime_check=check_obj,

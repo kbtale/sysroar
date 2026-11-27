@@ -1,3 +1,4 @@
+from collections import defaultdict
 import logging
 import time
 from datetime import timedelta
@@ -15,10 +16,13 @@ from .models import (
     AlertSilence,
     AlertState,
     Incident,
+    MaintenanceWindow,
     NotificationOutbox,
     Server,
     ServerAlertState,
     SystemEvent,
+    UptimeCheck,
+    UptimeCheckResult,
 )
 from .state_machine import AlertStateMachine
 
@@ -75,6 +79,7 @@ def evaluate_alert_rules(now=None, eval_interval_seconds: int = 30):
 
         evaluated = 0
         enqueued = 0
+        pending_alert_groups = defaultdict(list)
 
         for rule in active_rules:
             agg_value = _aggregate_rule_window(rule, now)
@@ -95,6 +100,13 @@ def evaluate_alert_rules(now=None, eval_interval_seconds: int = 30):
                         eval_interval_seconds=eval_interval_seconds,
                     )
                     if action == 'ALERT':
+                        if MaintenanceWindow.is_in_maintenance(
+                            company_id=rule.company_id,
+                            server=rule.server,
+                            tags=rule.server.tags,
+                            now=now,
+                        ):
+                            continue
                         open_incident = Incident.unscoped.filter(
                             company_id=rule.company_id,
                             server=rule.server,
@@ -115,6 +127,19 @@ def evaluate_alert_rules(now=None, eval_interval_seconds: int = 30):
                                 trigger_value=round(float(agg_value), 2),
                                 opened_at=now,
                             )
+                        if AlertSilence.is_silenced(
+                            company_id=rule.company_id,
+                            server_id=rule.server_id,
+                            rule_id=rule.id,
+                            now=now,
+                        ):
+                            continue
+                        group_key = (
+                            str(rule.company_id),
+                            rule.notification_type,
+                            rule.notification_target,
+                        )
+                        pending_alert_groups[group_key].append((rule, round(float(agg_value), 2)))
                     elif action == 'RESOLUTION':
                         Incident.unscoped.filter(
                             company_id=rule.company_id,
@@ -122,20 +147,11 @@ def evaluate_alert_rules(now=None, eval_interval_seconds: int = 30):
                             rule=rule,
                             status__in=('open', 'acknowledged'),
                         ).update(status='resolved', resolved_at=now)
-
-                    if action in ('ALERT', 'RESOLUTION'):
-                        if action == 'ALERT' and AlertSilence.is_silenced(
-                            company_id=rule.company_id,
-                            server_id=rule.server_id,
-                            rule_id=rule.id,
-                            now=now,
-                        ):
-                            continue
                         outbox = NotificationOutbox.unscoped.create(
                             company_id=rule.company_id,
                             server=rule.server,
                             rule=rule,
-                            event_type=action,
+                            event_type='RESOLUTION',
                             payload={
                                 'value': round(float(agg_value), 2),
                                 'severity': rule.severity,
@@ -157,6 +173,49 @@ def evaluate_alert_rules(now=None, eval_interval_seconds: int = 30):
                     severity='CRITICAL',
                     context={'rule_id': str(rule.id), 'error': str(exc)},
                 )
+
+        for items in pending_alert_groups.values():
+            primary_rule, primary_val = items[0]
+            if len(items) == 1:
+                payload = {
+                    'value': primary_val,
+                    'severity': primary_rule.severity,
+                    'operator': primary_rule.get_operator_display(),
+                    'threshold': primary_rule.threshold_value,
+                    'timestamp': now.isoformat(),
+                }
+            else:
+                summaries = [
+                    {
+                        'server': r.server.name,
+                        'metric': r.get_metric_type_display(),
+                        'value': val,
+                        'threshold': r.threshold_value,
+                        'severity': r.severity,
+                    }
+                    for r, val in items
+                ]
+                joined = ', '.join(f'{s["server"]} {s["metric"]}={s["value"]}' for s in summaries[:5])
+                payload = {
+                    'value': f'{len(items)} grouped alerts: {joined}',
+                    'severity': 'critical' if any(r.severity == 'critical' for r, _ in items) else 'warning',
+                    'operator': primary_rule.get_operator_display(),
+                    'threshold': primary_rule.threshold_value,
+                    'grouped_count': len(items),
+                    'grouped_alerts': summaries,
+                    'timestamp': now.isoformat(),
+                }
+            with transaction.atomic():
+                outbox = NotificationOutbox.unscoped.create(
+                    company_id=primary_rule.company_id,
+                    server=primary_rule.server,
+                    rule=primary_rule,
+                    event_type='ALERT',
+                    payload=payload,
+                )
+                enqueued += 1
+                outbox_id = str(outbox.id)
+                transaction.on_commit(lambda oid=outbox_id: deliver_notification_outbox.delay(oid))
 
         return {'evaluated': evaluated, 'enqueued': enqueued}
     finally:
@@ -429,3 +488,74 @@ def run_due_uptime_checks():
         execute_uptime_check(check_obj, now=now)
         executed += 1
     return {'executed': executed}
+
+
+@shared_task(name='monitoring.send_daily_digests', ignore_result=True)
+def send_daily_digests(now=None):
+    from accounts.models import Company, User
+
+    now = now or timezone.now()
+    today = now.date()
+    since = now - timedelta(hours=24)
+    sent = 0
+
+    companies = Company.objects.filter(digest_enabled=True, digest_hour_utc=now.hour).exclude(
+        last_digest_sent_on=today
+    )
+    for company in companies:
+        recipients = []
+        if company.digest_email:
+            recipients = [company.digest_email]
+        else:
+            recipients = list(
+                User.objects.filter(
+                    company=company,
+                    is_active=True,
+                    role__in=(User.ROLE_OWNER, User.ROLE_ADMIN),
+                )
+                .exclude(email='')
+                .values_list('email', flat=True)
+            )
+        if not recipients:
+            continue
+
+        total_servers = Server.unscoped.filter(company=company, is_active=True).count()
+        online_servers = Server.unscoped.filter(
+            company=company,
+            is_active=True,
+            last_ping__gte=now - timedelta(minutes=5),
+        ).count()
+        open_incidents = Incident.unscoped.filter(company=company, status__in=('open', 'acknowledged')).count()
+        opened_24h = Incident.unscoped.filter(company=company, opened_at__gte=since).count()
+        resolved_24h = Incident.unscoped.filter(company=company, resolved_at__gte=since).count()
+
+        total_checks = UptimeCheck.unscoped.filter(company=company, is_active=True).count()
+        results_24h = UptimeCheckResult.unscoped.filter(company=company, checked_at__gte=since)
+        res_total = results_24h.count()
+        if res_total:
+            res_up = results_24h.filter(status='up').count()
+            uptime_pct = f'{(res_up / res_total) * 100.0:.2f}%'
+        else:
+            uptime_pct = 'N/A'
+
+        body = (
+            f'SysRoar Daily Digest for {company.name} ({today.isoformat()})\n\n'
+            f'Fleet: {online_servers}/{total_servers} active servers online\n'
+            f'Incidents: {open_incidents} currently open, {opened_24h} opened (24h), {resolved_24h} resolved (24h)\n'
+            f'Uptime Checks: {total_checks} active checks, 24h uptime {uptime_pct}\n'
+        )
+        try:
+            send_mail(
+                subject=f'[SysRoar] Daily Digest - {company.name} ({today.isoformat()})',
+                message=body,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=recipients,
+                fail_silently=False,
+            )
+            company.last_digest_sent_on = today
+            company.save(update_fields=['last_digest_sent_on'])
+            sent += 1
+        except Exception as exc:
+            logger.error(f'Failed sending daily digest for company {company.id}: {exc}')
+
+    return {'sent': sent}

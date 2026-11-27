@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import {
   Bell,
   BellOff,
+  CalendarClock,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -70,8 +71,24 @@ import {
 import { useAuthStore } from '../stores/auth'
 import { formatDateTime, formatRelativeTime } from '../utils/format'
 
-const VALID_TABS = ['incidents', 'rules', 'channels', 'silences'] as const
+const VALID_TABS = ['incidents', 'rules', 'channels', 'silences', 'maintenance'] as const
 type AlertTab = (typeof VALID_TABS)[number]
+
+interface MaintenanceWindowRecord {
+  id: string
+  name: string
+  scope: 'all' | 'server' | 'tag'
+  server: string | null
+  server_name: string | null
+  tag_filter: string
+  recurrence: 'none' | 'daily' | 'weekly'
+  starts_at: string
+  ends_at: string
+  reason: string
+  is_active: boolean
+  is_currently_active: boolean
+  created_at: string
+}
 
 const METRIC_LABELS: Record<string, string> = {
   cpu: 'CPU Usage (%)',
@@ -161,6 +178,16 @@ const {
   queryKey: ['alert-silences'],
   queryFn: async () =>
     unwrapResults<AlertSilenceRecord>((await api.get('/api/monitoring/silences/')).data),
+})
+
+const {
+  data: maintenanceWindows,
+  isPending: maintenancePending,
+  refetch: refetchMaintenance,
+} = useQuery<MaintenanceWindowRecord[]>({
+  queryKey: ['maintenance-windows'],
+  queryFn: async () =>
+    unwrapResults<MaintenanceWindowRecord>((await api.get('/api/monitoring/maintenance-windows/')).data),
 })
 
 const openIncidentCount = computed(
@@ -285,7 +312,9 @@ const ruleError = ref('')
 const revealedSecret = ref('')
 const copiedSecret = ref(false)
 
-const deleteTarget = ref<{ kind: 'rule' | 'channel' | 'silence'; id: string; label: string } | null>(null)
+const deleteTarget = ref<{ kind: 'rule' | 'channel' | 'silence' | 'maintenance'; id: string; label: string } | null>(
+  null,
+)
 const deleteDialogOpen = ref(false)
 const deletingItem = ref(false)
 
@@ -553,7 +582,59 @@ async function handleCreateSilence() {
   }
 }
 
-function requestDelete(kind: 'rule' | 'channel' | 'silence', id: string, label: string) {
+const mwDialogOpen = ref(false)
+const mwName = ref('')
+const mwScope = ref<string | null>('all')
+const mwServerId = ref<string | null>(null)
+const mwTagFilter = ref('')
+const mwRecurrence = ref<string | null>('none')
+const mwDurationMinutes = ref<string | null>('60')
+const mwReason = ref('')
+const mwSaving = ref(false)
+const mwError = ref('')
+
+function openCreateMaintenanceDialog() {
+  mwName.value = ''
+  mwScope.value = 'all'
+  mwServerId.value = (servers.value && servers.value[0]?.id) || null
+  mwTagFilter.value = ''
+  mwRecurrence.value = 'none'
+  mwDurationMinutes.value = '60'
+  mwReason.value = ''
+  mwError.value = ''
+  mwDialogOpen.value = true
+}
+
+async function handleCreateMaintenance() {
+  mwError.value = ''
+  mwSaving.value = true
+  try {
+    const minutes = Number.parseInt(mwDurationMinutes.value || '60', 10) || 60
+    const now = new Date()
+    const ends = new Date(now.getTime() + minutes * 60000)
+    const scope = mwScope.value || 'all'
+    await api.post('/api/monitoring/maintenance-windows/', {
+      name: mwName.value.trim(),
+      scope,
+      server: scope === 'server' ? mwServerId.value : null,
+      tag_filter: scope === 'tag' ? mwTagFilter.value.trim().toLowerCase() : '',
+      recurrence: mwRecurrence.value || 'none',
+      starts_at: now.toISOString(),
+      ends_at: ends.toISOString(),
+      reason: mwReason.value.trim(),
+      is_active: true,
+    })
+    queryClient.invalidateQueries({ queryKey: ['maintenance-windows'] })
+    mwDialogOpen.value = false
+    toast.success('Maintenance window created')
+  } catch (err) {
+    mwError.value = extractApiError(err, 'Could not create maintenance window.')
+  } finally {
+    mwSaving.value = false
+  }
+}
+
+function requestDelete(kind: 'rule' | 'channel' | 'silence' | 'maintenance', id: string, label: string) {
   deleteTarget.value = { kind, id, label }
   deleteDialogOpen.value = true
 }
@@ -571,6 +652,10 @@ async function confirmDelete() {
       await api.delete(`/api/monitoring/channels/${id}/`)
       queryClient.invalidateQueries({ queryKey: ['notification-channels'] })
       toast.success('Notification channel deleted')
+    } else if (kind === 'maintenance') {
+      await api.delete(`/api/monitoring/maintenance-windows/${id}/`)
+      queryClient.invalidateQueries({ queryKey: ['maintenance-windows'] })
+      toast.success('Maintenance window removed')
     } else {
       await api.delete(`/api/monitoring/silences/${id}/`)
       queryClient.invalidateQueries({ queryKey: ['alert-silences'] })
@@ -609,6 +694,7 @@ function refreshCurrent() {
   refetchRules()
   refetchChannels()
   refetchSilences()
+  refetchMaintenance()
 }
 </script>
 
@@ -666,6 +752,10 @@ function refreshCurrent() {
         <TabsTab value="silences">
           <BellOff :size="14" aria-hidden="true" />
           <span>Silences ({{ silences?.length ?? 0 }})</span>
+        </TabsTab>
+        <TabsTab value="maintenance">
+          <CalendarClock :size="14" aria-hidden="true" />
+          <span>Maintenance ({{ maintenanceWindows?.length ?? 0 }})</span>
         </TabsTab>
       </TabsList>
 
@@ -955,6 +1045,67 @@ function refreshCurrent() {
                     data-variant="danger"
                     aria-label="Remove silence"
                     @click="requestDelete('silence', sil.id, sil.reason || 'this silence')"
+                  >
+                    <Trash2 :size="14" aria-hidden="true" />
+                  </Button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </TabsPanel>
+
+      <TabsPanel value="maintenance" class="tab-panel">
+        <div class="sub-bar">
+          <p class="muted">Schedule one-time or recurring maintenance windows to suppress alerts and uptime incidents.</p>
+          <Button v-if="auth.canWrite" type="button" data-variant="solid" @click="openCreateMaintenanceDialog()">
+            <Plus :size="15" aria-hidden="true" />
+            <span>Schedule Window</span>
+          </Button>
+        </div>
+
+        <div v-if="maintenancePending" class="card empty-box">Loading maintenance windows...</div>
+        <div v-else-if="!maintenanceWindows || maintenanceWindows.length === 0" class="card empty-box">
+          <p>No maintenance windows scheduled yet.</p>
+        </div>
+        <div v-else class="card table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Scope</th>
+                <th>Recurrence</th>
+                <th>Window</th>
+                <th>Status</th>
+                <th v-if="auth.canWrite" class="num">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="mw in maintenanceWindows" :key="mw.id">
+                <td>
+                  <strong>{{ mw.name }}</strong>
+                  <div v-if="mw.reason" class="muted">{{ mw.reason }}</div>
+                </td>
+                <td>
+                  <span v-if="mw.scope === 'all'" class="badge badge-neutral">All resources</span>
+                  <span v-else-if="mw.scope === 'tag'" class="badge badge-neutral">#{{ mw.tag_filter }}</span>
+                  <span v-else class="badge badge-neutral">{{ mw.server_name || 'Server' }}</span>
+                </td>
+                <td>{{ mw.recurrence }}</td>
+                <td class="tabular muted">
+                  {{ formatDateTime(mw.starts_at) }} - {{ formatDateTime(mw.ends_at) }}
+                </td>
+                <td>
+                  <span class="badge" :class="mw.is_currently_active ? 'badge-warning' : 'badge-neutral'">
+                    {{ mw.is_currently_active ? 'active now' : 'scheduled' }}
+                  </span>
+                </td>
+                <td v-if="auth.canWrite" class="num actions-cell">
+                  <Button
+                    type="button"
+                    data-variant="danger"
+                    aria-label="Delete maintenance window"
+                    @click="requestDelete('maintenance', mw.id, mw.name)"
                   >
                     <Trash2 :size="14" aria-hidden="true" />
                   </Button>
@@ -1385,6 +1536,110 @@ function refreshCurrent() {
           <div class="dialog-actions">
             <DialogClose class="btn btn-ghost">Cancel</DialogClose>
             <Button type="submit" data-variant="solid" :pending="silenceSaving">Create Silence</Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+
+    <Dialog v-model:open="mwDialogOpen">
+      <DialogBackdrop />
+      <DialogContent class="form-dialog">
+        <div class="dialog-head">
+          <div>
+            <DialogTitle>Schedule Maintenance Window</DialogTitle>
+            <DialogDescription class="muted">
+              Suppress new alerts and uptime incidents during planned maintenance.
+            </DialogDescription>
+          </div>
+          <DialogClose class="icon-close" aria-label="Close">
+            <X :size="16" aria-hidden="true" />
+          </DialogClose>
+        </div>
+
+        <form class="form-stack" @submit.prevent="handleCreateMaintenance">
+          <div v-if="mwError" class="banner-error" role="alert">{{ mwError }}</div>
+
+          <Field name="mw-name">
+            <FieldLabel>Window Name</FieldLabel>
+            <Input v-model="mwName" placeholder="Weekly kernel patching" required />
+          </Field>
+
+          <div class="grid-2">
+            <Field name="mw-scope">
+              <FieldLabel>Scope</FieldLabel>
+              <Select v-model="mwScope">
+                <SelectTrigger aria-label="Maintenance scope">
+                  <SelectValue />
+                  <ChevronDown :size="14" aria-hidden="true" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all"><SelectItemText>All resources</SelectItemText></SelectItem>
+                  <SelectItem value="server"><SelectItemText>Single server</SelectItemText></SelectItem>
+                  <SelectItem value="tag"><SelectItemText>Tag match</SelectItemText></SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+
+            <Field name="mw-recurrence">
+              <FieldLabel>Recurrence</FieldLabel>
+              <Select v-model="mwRecurrence">
+                <SelectTrigger aria-label="Maintenance recurrence">
+                  <SelectValue />
+                  <ChevronDown :size="14" aria-hidden="true" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none"><SelectItemText>One-time</SelectItemText></SelectItem>
+                  <SelectItem value="daily"><SelectItemText>Daily</SelectItemText></SelectItem>
+                  <SelectItem value="weekly"><SelectItemText>Weekly</SelectItemText></SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+          </div>
+
+          <Field v-if="mwScope === 'server'" name="mw-server">
+            <FieldLabel>Server</FieldLabel>
+            <Select v-model="mwServerId">
+              <SelectTrigger aria-label="Maintenance server">
+                <SelectValue placeholder="Choose server" />
+                <ChevronDown :size="14" aria-hidden="true" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem v-for="srv in servers ?? []" :key="srv.id" :value="srv.id">
+                  <SelectItemText>{{ srv.name }}</SelectItemText>
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+
+          <Field v-if="mwScope === 'tag'" name="mw-tag">
+            <FieldLabel>Tag Filter</FieldLabel>
+            <Input v-model="mwTagFilter" placeholder="prod" required />
+          </Field>
+
+          <Field name="mw-duration">
+            <FieldLabel>Duration (starting now)</FieldLabel>
+            <Select v-model="mwDurationMinutes">
+              <SelectTrigger aria-label="Maintenance duration">
+                <SelectValue />
+                <ChevronDown :size="14" aria-hidden="true" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="30"><SelectItemText>30 minutes</SelectItemText></SelectItem>
+                <SelectItem value="60"><SelectItemText>1 hour</SelectItemText></SelectItem>
+                <SelectItem value="120"><SelectItemText>2 hours</SelectItemText></SelectItem>
+                <SelectItem value="240"><SelectItemText>4 hours</SelectItemText></SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+
+          <Field name="mw-reason">
+            <FieldLabel>Reason (optional)</FieldLabel>
+            <Input v-model="mwReason" placeholder="Database migration" />
+          </Field>
+
+          <div class="dialog-actions">
+            <DialogClose class="btn btn-ghost">Cancel</DialogClose>
+            <Button type="submit" data-variant="solid" :pending="mwSaving">Schedule Window</Button>
           </div>
         </form>
       </DialogContent>

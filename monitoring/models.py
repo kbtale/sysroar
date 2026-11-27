@@ -565,3 +565,92 @@ class AlertSilence(TenantModel):
             if server_match and rule_match:
                 return True
         return False
+
+
+class MaintenanceWindow(TenantModel):
+    SCOPE_CHOICES = [
+        ('all', 'All Resources'),
+        ('server', 'Single Server'),
+        ('tag', 'Server Tag'),
+    ]
+
+    RECURRENCE_CHOICES = [
+        ('none', 'One-time'),
+        ('daily', 'Daily'),
+        ('weekly', 'Weekly'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=128)
+    scope = models.CharField(max_length=16, choices=SCOPE_CHOICES, default='all')
+    server = models.ForeignKey(
+        Server,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='maintenance_windows',
+    )
+    tag_filter = models.CharField(max_length=64, blank=True, default='')
+    recurrence = models.CharField(max_length=16, choices=RECURRENCE_CHOICES, default='none')
+    starts_at = models.DateTimeField(db_index=True)
+    ends_at = models.DateTimeField(db_index=True)
+    reason = models.CharField(max_length=255, blank=True, default='')
+    is_active = models.BooleanField(default=True, db_index=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='created_maintenance_windows',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-starts_at']
+        indexes = [
+            models.Index(fields=['company', 'is_active', 'starts_at'], name='monitoring_mw_co_act_idx'),
+        ]
+
+    def matches_time(self, now=None) -> bool:
+        now = now or timezone.now()
+        if not self.is_active or self.ends_at <= self.starts_at:
+            return False
+        if self.recurrence == 'none':
+            return self.starts_at <= now < self.ends_at
+        if now < self.starts_at:
+            return False
+        duration = self.ends_at - self.starts_at
+        if self.recurrence == 'daily':
+            period = timedelta(days=1)
+        elif self.recurrence == 'weekly':
+            period = timedelta(days=7)
+        else:
+            return False
+        elapsed = now - self.starts_at
+        offset = elapsed - period * int(elapsed // period)
+        return offset < duration
+
+    def matches_target(self, server=None, tags=None) -> bool:
+        if self.scope == 'all':
+            return True
+        if self.scope == 'server':
+            return server is not None and self.server_id == getattr(server, 'id', server)
+        if self.scope == 'tag':
+            needle = (self.tag_filter or '').strip().lower()
+            if not needle:
+                return False
+            candidate_tags = tags if tags is not None else getattr(server, 'tags', None) or []
+            return any(str(t).strip().lower() == needle for t in candidate_tags)
+        return False
+
+    @classmethod
+    def is_in_maintenance(cls, company_id, server=None, tags=None, now=None) -> bool:
+        now = now or timezone.now()
+        windows = cls.unscoped.filter(company_id=company_id, is_active=True, starts_at__lte=now)
+        for window in windows:
+            if window.matches_time(now) and window.matches_target(server=server, tags=tags):
+                return True
+        return False
+
+    def __str__(self):
+        return f'{self.name} ({self.scope}/{self.recurrence})'

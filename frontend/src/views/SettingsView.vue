@@ -105,6 +105,9 @@ const currentCompany = computed<CompanyRecord | null>(() => {
 
 const companyName = ref('')
 const retentionDays = ref('14')
+const digestEnabled = ref(false)
+const digestHourUtc = ref('8')
+const digestEmail = ref('')
 const savingCompany = ref(false)
 const companyError = ref('')
 
@@ -114,6 +117,9 @@ watch(
     if (company) {
       companyName.value = company.name
       retentionDays.value = String(company.retention_days ?? 14)
+      digestEnabled.value = Boolean((company as Record<string, unknown>).digest_enabled)
+      digestHourUtc.value = String((company as Record<string, unknown>).digest_hour_utc ?? 8)
+      digestEmail.value = String((company as Record<string, unknown>).digest_email ?? '')
     }
   },
   { immediate: true },
@@ -125,9 +131,13 @@ async function handleSaveCompany() {
   savingCompany.value = true
   try {
     const days = Math.max(1, Math.min(3650, Number.parseInt(retentionDays.value, 10) || 14))
+    const hour = Math.max(0, Math.min(23, Number.parseInt(digestHourUtc.value, 10) || 0))
     const resp = await api.patch<CompanyRecord>(`/api/accounts/companies/${currentCompany.value.id}/`, {
       name: companyName.value.trim(),
       retention_days: days,
+      digest_enabled: digestEnabled.value,
+      digest_hour_utc: hour,
+      digest_email: digestEmail.value.trim(),
     })
     if (auth.user && resp.data?.name) {
       auth.user = { ...auth.user, company_name: resp.data.name }
@@ -435,6 +445,32 @@ async function copyText(val: string, key: string) {
               <Input v-model="retentionDays" type="number" min="1" max="3650" inputmode="numeric" required />
               <FieldDescription>TimescaleDB retention window for raw and aggregated host metrics.</FieldDescription>
             </Field>
+
+            <div class="switch-row">
+              <div>
+                <strong>Daily Digest Email</strong>
+                <p class="muted">Send a daily fleet, incident, and uptime summary email.</p>
+              </div>
+              <Switch
+                v-model:checked="digestEnabled"
+                :disabled="!auth.isAdmin"
+                aria-label="Enable daily digest email"
+              >
+                <SwitchThumb />
+              </Switch>
+            </div>
+
+            <div v-if="digestEnabled" class="form-stack">
+              <Field name="digest-hour" :disabled="!auth.isAdmin">
+                <FieldLabel>Delivery Hour (UTC, 0-23)</FieldLabel>
+                <Input v-model="digestHourUtc" type="number" min="0" max="23" inputmode="numeric" required />
+              </Field>
+              <Field name="digest-email" :disabled="!auth.isAdmin">
+                <FieldLabel>Digest Recipient Email (optional)</FieldLabel>
+                <Input v-model="digestEmail" type="email" placeholder="ops@example.com" />
+                <FieldDescription>Leave blank to email all active workspace owners and admins.</FieldDescription>
+              </Field>
+            </div>
 
             <div v-if="auth.isAdmin" class="actions-left">
               <Button type="submit" data-variant="solid" :pending="savingCompany">Save Workspace</Button>
@@ -978,6 +1014,17 @@ async function copyText(val: string, key: string) {
 .actions-left {
   display: flex;
   gap: 10px;
+}
+
+.switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
 }
 
 .table-wrap {

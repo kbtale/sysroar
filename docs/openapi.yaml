@@ -926,6 +926,144 @@ paths:
               schema:
                 $ref: '#/components/schemas/Incident'
           description: ''
+  /api/monitoring/maintenance-windows/:
+    get:
+      operationId: monitoring_maintenance_windows_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - monitoring
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedMaintenanceWindowList'
+          description: ''
+    post:
+      operationId: monitoring_maintenance_windows_create
+      tags:
+      - monitoring
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MaintenanceWindowRequest'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaintenanceWindow'
+          description: ''
+  /api/monitoring/maintenance-windows/{id}/:
+    get:
+      operationId: monitoring_maintenance_windows_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this maintenance window.
+        required: true
+      tags:
+      - monitoring
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaintenanceWindow'
+          description: ''
+    put:
+      operationId: monitoring_maintenance_windows_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this maintenance window.
+        required: true
+      tags:
+      - monitoring
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MaintenanceWindowRequest'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaintenanceWindow'
+          description: ''
+    patch:
+      operationId: monitoring_maintenance_windows_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this maintenance window.
+        required: true
+      tags:
+      - monitoring
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedMaintenanceWindowRequest'
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MaintenanceWindow'
+          description: ''
+    delete:
+      operationId: monitoring_maintenance_windows_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this maintenance window.
+        required: true
+      tags:
+      - monitoring
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '204':
+          description: No response body
   /api/monitoring/rules/:
     get:
       operationId: monitoring_rules_list
@@ -1663,7 +1801,7 @@ components:
           nullable: true
           readOnly: true
         scope:
-          $ref: '#/components/schemas/ScopeEnum'
+          $ref: '#/components/schemas/AlertRuleScopeEnum'
         tag_filter:
           type: string
           maxLength: 64
@@ -1714,7 +1852,7 @@ components:
           format: uuid
           nullable: true
         scope:
-          $ref: '#/components/schemas/ScopeEnum'
+          $ref: '#/components/schemas/AlertRuleScopeEnum'
         tag_filter:
           type: string
           maxLength: 64
@@ -1755,6 +1893,16 @@ components:
       required:
       - metric_type
       - threshold_value
+    AlertRuleScopeEnum:
+      enum:
+      - server
+      - tag
+      - all
+      type: string
+      description: |-
+        * `server` - Server
+        * `tag` - Tag
+        * `all` - All Servers
     AlertSilence:
       type: object
       properties:
@@ -1909,6 +2057,21 @@ components:
           type: integer
           maximum: 365
           minimum: 1
+        digest_enabled:
+          type: boolean
+        digest_hour_utc:
+          type: integer
+          maximum: 23
+          minimum: 0
+        digest_email:
+          type: string
+          format: email
+          maxLength: 254
+        last_digest_sent_on:
+          type: string
+          format: date
+          readOnly: true
+          nullable: true
         created_at:
           type: string
           format: date-time
@@ -1916,6 +2079,7 @@ components:
       required:
       - created_at
       - id
+      - last_digest_sent_on
       - name
     CompanyInvite:
       type: object
@@ -2016,6 +2180,16 @@ components:
           type: integer
           maximum: 365
           minimum: 1
+        digest_enabled:
+          type: boolean
+        digest_hour_utc:
+          type: integer
+          maximum: 23
+          minimum: 0
+        digest_email:
+          type: string
+          format: email
+          maxLength: 254
       required:
       - name
     EnrollmentToken:
@@ -2192,6 +2366,100 @@ components:
         * `degraded` - Degraded
         * `down` - Down
         * `unknown` - Unknown
+    MaintenanceWindow:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          maxLength: 128
+        scope:
+          $ref: '#/components/schemas/MaintenanceWindowScopeEnum'
+        server:
+          type: string
+          format: uuid
+          nullable: true
+        server_name:
+          type: string
+          nullable: true
+          readOnly: true
+        tag_filter:
+          type: string
+          maxLength: 64
+        recurrence:
+          $ref: '#/components/schemas/RecurrenceEnum'
+        starts_at:
+          type: string
+          format: date-time
+        ends_at:
+          type: string
+          format: date-time
+        reason:
+          type: string
+          maxLength: 255
+        is_active:
+          type: boolean
+        is_currently_active:
+          type: boolean
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - ends_at
+      - id
+      - is_currently_active
+      - name
+      - server_name
+      - starts_at
+    MaintenanceWindowRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+        scope:
+          $ref: '#/components/schemas/MaintenanceWindowScopeEnum'
+        server:
+          type: string
+          format: uuid
+          nullable: true
+        tag_filter:
+          type: string
+          maxLength: 64
+        recurrence:
+          $ref: '#/components/schemas/RecurrenceEnum'
+        starts_at:
+          type: string
+          format: date-time
+        ends_at:
+          type: string
+          format: date-time
+        reason:
+          type: string
+          maxLength: 255
+        is_active:
+          type: boolean
+      required:
+      - ends_at
+      - name
+      - starts_at
+    MaintenanceWindowScopeEnum:
+      enum:
+      - all
+      - server
+      - tag
+      type: string
+      description: |-
+        * `all` - All Resources
+        * `server` - Single Server
+        * `tag` - Server Tag
     MetricHistoryPoint:
       type: object
       properties:
@@ -2576,6 +2844,29 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Incident'
+    PaginatedMaintenanceWindowList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/MaintenanceWindow'
     PaginatedNotificationChannelList:
       type: object
       required:
@@ -2653,7 +2944,7 @@ components:
           format: uuid
           nullable: true
         scope:
-          $ref: '#/components/schemas/ScopeEnum'
+          $ref: '#/components/schemas/AlertRuleScopeEnum'
         tag_filter:
           type: string
           maxLength: 64
@@ -2712,6 +3003,45 @@ components:
           type: integer
           maximum: 365
           minimum: 1
+        digest_enabled:
+          type: boolean
+        digest_hour_utc:
+          type: integer
+          maximum: 23
+          minimum: 0
+        digest_email:
+          type: string
+          format: email
+          maxLength: 254
+    PatchedMaintenanceWindowRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+        scope:
+          $ref: '#/components/schemas/MaintenanceWindowScopeEnum'
+        server:
+          type: string
+          format: uuid
+          nullable: true
+        tag_filter:
+          type: string
+          maxLength: 64
+        recurrence:
+          $ref: '#/components/schemas/RecurrenceEnum'
+        starts_at:
+          type: string
+          format: date-time
+        ends_at:
+          type: string
+          format: date-time
+        reason:
+          type: string
+          maxLength: 255
+        is_active:
+          type: boolean
     PatchedNotificationChannelRequest:
       type: object
       properties:
@@ -2824,6 +3154,16 @@ components:
         tags: {}
         is_active:
           type: boolean
+    RecurrenceEnum:
+      enum:
+      - none
+      - daily
+      - weekly
+      type: string
+      description: |-
+        * `none` - One-time
+        * `daily` - Daily
+        * `weekly` - Weekly
     RoleEnum:
       enum:
       - owner
@@ -2836,16 +3176,6 @@ components:
         * `admin` - Admin
         * `member` - Member
         * `viewer` - Viewer
-    ScopeEnum:
-      enum:
-      - server
-      - tag
-      - all
-      type: string
-      description: |-
-        * `server` - Server
-        * `tag` - Tag
-        * `all` - All Servers
     Server:
       type: object
       properties:

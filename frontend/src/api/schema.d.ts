@@ -548,6 +548,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/monitoring/maintenance-windows/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["monitoring_maintenance_windows_list"];
+        put?: never;
+        post: operations["monitoring_maintenance_windows_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/monitoring/maintenance-windows/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["monitoring_maintenance_windows_retrieve"];
+        put: operations["monitoring_maintenance_windows_update"];
+        post?: never;
+        delete: operations["monitoring_maintenance_windows_destroy"];
+        options?: never;
+        head?: never;
+        patch: operations["monitoring_maintenance_windows_partial_update"];
+        trace?: never;
+    };
     "/api/monitoring/rules/": {
         parameters: {
             query?: never;
@@ -851,7 +883,7 @@ export interface components {
             /** Format: uuid */
             server?: string | null;
             readonly server_name: string | null;
-            scope?: components["schemas"]["ScopeEnum"];
+            scope?: components["schemas"]["AlertRuleScopeEnum"];
             tag_filter?: string;
             /** Format: uuid */
             channel?: string | null;
@@ -872,7 +904,7 @@ export interface components {
         AlertRuleRequest: {
             /** Format: uuid */
             server?: string | null;
-            scope?: components["schemas"]["ScopeEnum"];
+            scope?: components["schemas"]["AlertRuleScopeEnum"];
             tag_filter?: string;
             /** Format: uuid */
             channel?: string | null;
@@ -890,6 +922,13 @@ export interface components {
             notification_target?: string | null;
             webhook_secret?: string;
         };
+        /**
+         * @description * `server` - Server
+         *     * `tag` - Tag
+         *     * `all` - All Servers
+         * @enum {string}
+         */
+        AlertRuleScopeEnum: "server" | "tag" | "all";
         AlertSilence: {
             /** Format: uuid */
             readonly id: string;
@@ -959,6 +998,12 @@ export interface components {
             readonly id: string;
             name: string;
             retention_days?: number;
+            digest_enabled?: boolean;
+            digest_hour_utc?: number;
+            /** Format: email */
+            digest_email?: string;
+            /** Format: date */
+            readonly last_digest_sent_on: string | null;
             /** Format: date-time */
             readonly created_at: string;
         };
@@ -1008,6 +1053,10 @@ export interface components {
         CompanyRequest: {
             name: string;
             retention_days?: number;
+            digest_enabled?: boolean;
+            digest_hour_utc?: number;
+            /** Format: email */
+            digest_email?: string;
         };
         EnrollmentToken: {
             /** Format: uuid */
@@ -1070,6 +1119,47 @@ export interface components {
          * @enum {string}
          */
         LastStatusEnum: "up" | "degraded" | "down" | "unknown";
+        MaintenanceWindow: {
+            /** Format: uuid */
+            readonly id: string;
+            name: string;
+            scope?: components["schemas"]["MaintenanceWindowScopeEnum"];
+            /** Format: uuid */
+            server?: string | null;
+            readonly server_name: string | null;
+            tag_filter?: string;
+            recurrence?: components["schemas"]["RecurrenceEnum"];
+            /** Format: date-time */
+            starts_at: string;
+            /** Format: date-time */
+            ends_at: string;
+            reason?: string;
+            is_active?: boolean;
+            readonly is_currently_active: boolean;
+            /** Format: date-time */
+            readonly created_at: string;
+        };
+        MaintenanceWindowRequest: {
+            name: string;
+            scope?: components["schemas"]["MaintenanceWindowScopeEnum"];
+            /** Format: uuid */
+            server?: string | null;
+            tag_filter?: string;
+            recurrence?: components["schemas"]["RecurrenceEnum"];
+            /** Format: date-time */
+            starts_at: string;
+            /** Format: date-time */
+            ends_at: string;
+            reason?: string;
+            is_active?: boolean;
+        };
+        /**
+         * @description * `all` - All Resources
+         *     * `server` - Single Server
+         *     * `tag` - Server Tag
+         * @enum {string}
+         */
+        MaintenanceWindowScopeEnum: "all" | "server" | "tag";
         MetricHistoryPoint: {
             /** Format: date-time */
             timestamp: string;
@@ -1285,6 +1375,21 @@ export interface components {
             previous?: string | null;
             results: components["schemas"]["Incident"][];
         };
+        PaginatedMaintenanceWindowList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["MaintenanceWindow"][];
+        };
         PaginatedNotificationChannelList: {
             /** @example 123 */
             count: number;
@@ -1333,7 +1438,7 @@ export interface components {
         PatchedAlertRuleRequest: {
             /** Format: uuid */
             server?: string | null;
-            scope?: components["schemas"]["ScopeEnum"];
+            scope?: components["schemas"]["AlertRuleScopeEnum"];
             tag_filter?: string;
             /** Format: uuid */
             channel?: string | null;
@@ -1362,6 +1467,24 @@ export interface components {
         PatchedCompanyRequest: {
             name?: string;
             retention_days?: number;
+            digest_enabled?: boolean;
+            digest_hour_utc?: number;
+            /** Format: email */
+            digest_email?: string;
+        };
+        PatchedMaintenanceWindowRequest: {
+            name?: string;
+            scope?: components["schemas"]["MaintenanceWindowScopeEnum"];
+            /** Format: uuid */
+            server?: string | null;
+            tag_filter?: string;
+            recurrence?: components["schemas"]["RecurrenceEnum"];
+            /** Format: date-time */
+            starts_at?: string;
+            /** Format: date-time */
+            ends_at?: string;
+            reason?: string;
+            is_active?: boolean;
         };
         PatchedNotificationChannelRequest: {
             name?: string;
@@ -1402,6 +1525,13 @@ export interface components {
             is_active?: boolean;
         };
         /**
+         * @description * `none` - One-time
+         *     * `daily` - Daily
+         *     * `weekly` - Weekly
+         * @enum {string}
+         */
+        RecurrenceEnum: "none" | "daily" | "weekly";
+        /**
          * @description * `owner` - Owner
          *     * `admin` - Admin
          *     * `member` - Member
@@ -1409,13 +1539,6 @@ export interface components {
          * @enum {string}
          */
         RoleEnum: "owner" | "admin" | "member" | "viewer";
-        /**
-         * @description * `server` - Server
-         *     * `tag` - Tag
-         *     * `all` - All Servers
-         * @enum {string}
-         */
-        ScopeEnum: "server" | "tag" | "all";
         Server: {
             /** Format: uuid */
             readonly id: string;
@@ -2542,6 +2665,146 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Incident"];
+                };
+            };
+        };
+    };
+    monitoring_maintenance_windows_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedMaintenanceWindowList"];
+                };
+            };
+        };
+    };
+    monitoring_maintenance_windows_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MaintenanceWindowRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintenanceWindow"];
+                };
+            };
+        };
+    };
+    monitoring_maintenance_windows_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A UUID string identifying this maintenance window. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintenanceWindow"];
+                };
+            };
+        };
+    };
+    monitoring_maintenance_windows_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A UUID string identifying this maintenance window. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MaintenanceWindowRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintenanceWindow"];
+                };
+            };
+        };
+    };
+    monitoring_maintenance_windows_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A UUID string identifying this maintenance window. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    monitoring_maintenance_windows_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A UUID string identifying this maintenance window. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedMaintenanceWindowRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintenanceWindow"];
                 };
             };
         };

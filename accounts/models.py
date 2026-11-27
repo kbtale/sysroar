@@ -23,6 +23,13 @@ class Company(models.Model):
         default=14,
         validators=[MinValueValidator(1), MaxValueValidator(365)],
     )
+    digest_enabled = models.BooleanField(default=False)
+    digest_hour_utc = models.PositiveSmallIntegerField(
+        default=8,
+        validators=[MinValueValidator(0), MaxValueValidator(23)],
+    )
+    digest_email = models.EmailField(blank=True, default='')
+    last_digest_sent_on = models.DateField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

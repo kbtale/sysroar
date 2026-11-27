@@ -36,8 +36,17 @@ class OpenRegistrationSerializer(serializers.Serializer):
 class CompanySerializer(serializers.ModelSerializer):
     class Meta:
         model = Company
-        fields = ['id', 'name', 'retention_days', 'created_at']
-        read_only_fields = ['id', 'created_at']
+        fields = [
+            'id',
+            'name',
+            'retention_days',
+            'digest_enabled',
+            'digest_hour_utc',
+            'digest_email',
+            'last_digest_sent_on',
+            'created_at',
+        ]
+        read_only_fields = ['id', 'last_digest_sent_on', 'created_at']
 
 
 class CompanyMemberSerializer(serializers.ModelSerializer):
