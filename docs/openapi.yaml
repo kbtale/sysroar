@@ -1452,6 +1452,144 @@ paths:
       responses:
         '204':
           description: No response body
+  /api/monitoring/status-pages/:
+    get:
+      operationId: monitoring_status_pages_list
+      parameters:
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      tags:
+      - monitoring
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedStatusPageList'
+          description: ''
+    post:
+      operationId: monitoring_status_pages_create
+      tags:
+      - monitoring
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StatusPageRequest'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusPage'
+          description: ''
+  /api/monitoring/status-pages/{id}/:
+    get:
+      operationId: monitoring_status_pages_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this status page.
+        required: true
+      tags:
+      - monitoring
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusPage'
+          description: ''
+    put:
+      operationId: monitoring_status_pages_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this status page.
+        required: true
+      tags:
+      - monitoring
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StatusPageRequest'
+        required: true
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusPage'
+          description: ''
+    patch:
+      operationId: monitoring_status_pages_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this status page.
+        required: true
+      tags:
+      - monitoring
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedStatusPageRequest'
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusPage'
+          description: ''
+    delete:
+      operationId: monitoring_status_pages_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this status page.
+        required: true
+      tags:
+      - monitoring
+      security:
+      - tokenAuth: []
+      - cookieSessionAuth: []
+      responses:
+        '204':
+          description: No response body
   /api/monitoring/uptime-checks/:
     get:
       operationId: monitoring_uptime_checks_list
@@ -1642,6 +1780,22 @@ paths:
               schema:
                 $ref: '#/components/schemas/UptimeCheck'
           description: ''
+  /api/public/status/{slug}/:
+    get:
+      operationId: public_status_retrieve
+      parameters:
+      - in: path
+        name: slug
+        schema:
+          type: string
+        required: true
+      tags:
+      - public
+      security:
+      - {}
+      responses:
+        '200':
+          description: No response body
   /api/telemetry/config/:
     get:
       operationId: telemetry_config_retrieve
@@ -2913,6 +3067,29 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Server'
+    PaginatedStatusPageList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/StatusPage'
     PaginatedUptimeCheckList:
       type: object
       required:
@@ -3108,6 +3285,38 @@ components:
           minLength: 1
           maxLength: 20
         tags: {}
+    PatchedStatusPageRequest:
+      type: object
+      properties:
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 80
+          pattern: ^[-a-zA-Z0-9_]+$
+        title:
+          type: string
+          minLength: 1
+          maxLength: 128
+        description:
+          type: string
+        is_public:
+          type: boolean
+        accent_color:
+          type: string
+          minLength: 1
+          maxLength: 16
+        show_incidents:
+          type: boolean
+        servers:
+          type: array
+          items:
+            type: string
+            format: uuid
+        uptime_checks:
+          type: array
+          items:
+            type: string
+            format: uuid
     PatchedUptimeCheckRequest:
       type: object
       properties:
@@ -3358,6 +3567,88 @@ components:
         * `open` - Open
         * `acknowledged` - Acknowledged
         * `resolved` - Resolved
+    StatusPage:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        slug:
+          type: string
+          maxLength: 80
+          pattern: ^[-a-zA-Z0-9_]+$
+        title:
+          type: string
+          maxLength: 128
+        description:
+          type: string
+        is_public:
+          type: boolean
+        accent_color:
+          type: string
+          maxLength: 16
+        show_incidents:
+          type: boolean
+        servers:
+          type: array
+          items:
+            type: string
+            format: uuid
+        uptime_checks:
+          type: array
+          items:
+            type: string
+            format: uuid
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - slug
+      - title
+      - updated_at
+    StatusPageRequest:
+      type: object
+      properties:
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 80
+          pattern: ^[-a-zA-Z0-9_]+$
+        title:
+          type: string
+          minLength: 1
+          maxLength: 128
+        description:
+          type: string
+        is_public:
+          type: boolean
+        accent_color:
+          type: string
+          minLength: 1
+          maxLength: 16
+        show_incidents:
+          type: boolean
+        servers:
+          type: array
+          items:
+            type: string
+            format: uuid
+        uptime_checks:
+          type: array
+          items:
+            type: string
+            format: uuid
+      required:
+      - slug
+      - title
     UptimeCheck:
       type: object
       properties:

@@ -654,3 +654,23 @@ class MaintenanceWindow(TenantModel):
 
     def __str__(self):
         return f'{self.name} ({self.scope}/{self.recurrence})'
+
+
+class StatusPage(TenantModel):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    slug = models.SlugField(max_length=80, unique=True)
+    title = models.CharField(max_length=128)
+    description = models.TextField(blank=True, default='')
+    is_public = models.BooleanField(default=True, db_index=True)
+    accent_color = models.CharField(max_length=16, default='#0ea5e9')
+    show_incidents = models.BooleanField(default=True)
+    servers = models.ManyToManyField(Server, blank=True, related_name='status_pages')
+    uptime_checks = models.ManyToManyField(UptimeCheck, blank=True, related_name='status_pages')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['title', 'slug']
+
+    def __str__(self):
+        return f'{self.title} (/status/{self.slug})'

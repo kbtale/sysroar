@@ -10,12 +10,14 @@ from .views import (
     MaintenanceWindowViewSet,
     NotificationChannelViewSet,
     ServerViewSet,
+    StatusPageViewSet,
     UptimeCheckViewSet,
 )
 
 router = SimpleRouter()
 router.register(r'servers', ServerViewSet, basename='server')
 router.register(r'uptime-checks', UptimeCheckViewSet, basename='uptime-check')
+router.register(r'status-pages', StatusPageViewSet, basename='status-page')
 router.register(r'channels', NotificationChannelViewSet, basename='notification-channel')
 router.register(r'rules', AlertRuleViewSet, basename='alert-rule')
 router.register(r'incidents', IncidentViewSet, basename='incident')

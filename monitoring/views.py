@@ -5,11 +5,13 @@ from django.core.mail import send_mail
 from django.utils import timezone
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+from rest_framework.views import APIView
 from accounts.mixins import TenantScopedViewSetMixin
 from accounts.permissions import IsCompanyAdmin, ReadOnlyOrCompanyMember
 from monitoring.audit import record_audit_event
-from monitoring.heartbeat import get_live_heartbeats
+from monitoring.heartbeat import compute_offline_threshold_seconds, get_live_heartbeats
 from telemetry.models import MetricLog
 from .models import (
     AgentKey,
@@ -22,6 +24,7 @@ from .models import (
     MaintenanceWindow,
     NotificationChannel,
     Server,
+    StatusPage,
     UptimeCheck,
     UptimeCheckResult,
 )
@@ -40,6 +43,7 @@ from .serializers import (
     MaintenanceWindowSerializer,
     NotificationChannelSerializer,
     ServerSerializer,
+    StatusPageSerializer,
     UptimeCheckResultSerializer,
     UptimeCheckSerializer,
 )
@@ -805,4 +809,164 @@ class MaintenanceWindowViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
             resource_type='maintenance_window',
             resource_id=wid,
             metadata={'name': name},
+        )
+
+
+class StatusPageViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
+    queryset = StatusPage.unscoped.prefetch_related('servers', 'uptime_checks').all().order_by('title', 'slug')
+    serializer_class = StatusPageSerializer
+    permission_classes = [ReadOnlyOrCompanyMember]
+
+    def perform_create(self, serializer):
+        page = serializer.save(company_id=self.request.user.company_id)
+        record_audit_event(
+            self.request,
+            action='status_page.created',
+            resource_type='status_page',
+            resource_id=str(page.id),
+            metadata={'slug': page.slug, 'is_public': page.is_public},
+        )
+
+    def perform_update(self, serializer):
+        page = serializer.save()
+        record_audit_event(
+            self.request,
+            action='status_page.updated',
+            resource_type='status_page',
+            resource_id=str(page.id),
+            metadata={'slug': page.slug, 'is_public': page.is_public},
+        )
+
+    def perform_destroy(self, instance):
+        pid = str(instance.id)
+        slug = instance.slug
+        instance.delete()
+        record_audit_event(
+            self.request,
+            action='status_page.deleted',
+            resource_type='status_page',
+            resource_id=pid,
+            metadata={'slug': slug},
+        )
+
+
+class PublicStatusPageView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def get(self, request, slug: str):
+        page = StatusPage.unscoped.filter(slug=slug.strip().lower(), is_public=True).first()
+        if page is None:
+            return Response({'detail': 'Status page not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        now = timezone.now()
+        selected_servers = list(
+            Server.unscoped.filter(status_pages=page, company_id=page.company_id, is_active=True).order_by('name')
+        )
+        selected_checks = list(
+            UptimeCheck.unscoped.filter(status_pages=page, company_id=page.company_id, is_active=True).order_by('name')
+        )
+
+        live_heartbeats = get_live_heartbeats([s.id for s in selected_servers]) if selected_servers else {}
+        uptime_map, bars_map = _compute_uptime_overlays(page.company_id, selected_checks)
+
+        components = []
+        outage_count = 0
+        degraded_count = 0
+
+        for chk in selected_checks:
+            if chk.last_status == 'up':
+                comp_status = 'operational'
+            elif chk.last_status == 'degraded':
+                comp_status = 'degraded'
+                degraded_count += 1
+            elif chk.last_status == 'down':
+                comp_status = 'outage'
+                outage_count += 1
+            else:
+                comp_status = 'unknown'
+            components.append(
+                {
+                    'id': str(chk.id),
+                    'name': chk.name,
+                    'kind': 'uptime',
+                    'status': comp_status,
+                    'uptime_24h': uptime_map.get(str(chk.id)),
+                    'recent_statuses': bars_map.get(str(chk.id), []),
+                }
+            )
+
+        for srv in selected_servers:
+            hb = live_heartbeats.get(str(srv.id)) or {}
+            last_seen = hb.get('last_seen') or srv.last_ping
+            threshold = compute_offline_threshold_seconds(srv.telemetry_cadence)
+            if last_seen is None:
+                comp_status = 'unknown'
+            elif (now - last_seen).total_seconds() <= threshold:
+                comp_status = 'operational'
+            else:
+                comp_status = 'outage'
+                outage_count += 1
+            components.append(
+                {
+                    'id': str(srv.id),
+                    'name': srv.name,
+                    'kind': 'server',
+                    'status': comp_status,
+                    'uptime_24h': 100.0 if comp_status == 'operational' else None,
+                    'recent_statuses': [],
+                }
+            )
+
+        if outage_count > 0 and outage_count == len(components) and components:
+            overall_status = 'major_outage'
+        elif outage_count > 0:
+            overall_status = 'partial_outage'
+        elif degraded_count > 0:
+            overall_status = 'degraded'
+        else:
+            overall_status = 'operational'
+
+        incidents_payload = []
+        if page.show_incidents:
+            since = now - timedelta(days=7)
+            server_ids = [s.id for s in selected_servers]
+            check_ids = [c.id for c in selected_checks]
+            if server_ids or check_ids:
+                from django.db.models import Q
+
+                q = Q()
+                if server_ids:
+                    q |= Q(server_id__in=server_ids)
+                if check_ids:
+                    q |= Q(uptime_check_id__in=check_ids)
+                inc_rows = list(
+                    Incident.unscoped.filter(company_id=page.company_id, opened_at__gte=since)
+                    .filter(q)
+                    .order_by('-opened_at')[:10]
+                )
+                incidents_payload = [
+                    {
+                        'id': str(inc.id),
+                        'title': inc.title,
+                        'severity': inc.severity,
+                        'status': inc.status,
+                        'opened_at': inc.opened_at.isoformat(),
+                        'resolved_at': inc.resolved_at.isoformat() if inc.resolved_at else None,
+                    }
+                    for inc in inc_rows
+                ]
+
+        return Response(
+            {
+                'slug': page.slug,
+                'title': page.title,
+                'description': page.description,
+                'accent_color': page.accent_color,
+                'overall_status': overall_status,
+                'updated_at': now.isoformat(),
+                'components': components,
+                'incidents': incidents_payload,
+            },
+            status=status.HTTP_200_OK,
         )

@@ -23,6 +23,12 @@ const router = createRouter({
       meta: { public: true },
     },
     {
+      path: '/status/:slug',
+      name: 'public-status',
+      component: () => import('../views/PublicStatusView.vue'),
+      meta: { public: true },
+    },
+    {
       path: '/',
       component: () => import('../components/AppShell.vue'),
       meta: { requiresAuth: true },
@@ -58,6 +64,11 @@ const router = createRouter({
 })
 
 router.beforeEach(async (to, _from, next) => {
+  if (to.meta.public) {
+    next()
+    return
+  }
+
   const auth = useAuthStore()
   if (!auth.initialized) {
     await auth.initAuth()
@@ -74,11 +85,6 @@ router.beforeEach(async (to, _from, next) => {
 
   if (to.meta.setupOnly) {
     next(auth.isAuthenticated ? '/' : '/login')
-    return
-  }
-
-  if (to.meta.public) {
-    next()
     return
   }
 
