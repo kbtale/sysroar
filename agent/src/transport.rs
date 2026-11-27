@@ -219,6 +219,7 @@ mod tests {
                 load_avg: [0.4, 0.3, 0.2],
                 mounts: vec![],
                 interfaces: vec![],
+                ..MetricDetails::default()
             },
         }
     }

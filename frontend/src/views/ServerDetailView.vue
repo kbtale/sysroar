@@ -44,6 +44,7 @@ import {
   SelectValue,
 } from '@ui-sdk/vue/select'
 import { Switch, SwitchThumb } from '@ui-sdk/vue/switch'
+import { Tabs, TabsList, TabsPanel, TabsTab } from '@ui-sdk/vue/tabs'
 import { toast } from '@ui-sdk/vue/toast'
 import {
   api,
@@ -193,6 +194,87 @@ const effectiveLastSeen = computed(
 )
 
 const serverTags = computed(() => (Array.isArray(server.value?.tags) ? server.value.tags.map(String) : []))
+
+interface ProcessEntry {
+  pid: number
+  name: string
+  cpu_percent: number
+  mem_bytes: number
+}
+
+interface DockerEntry {
+  id: string
+  name: string
+  image: string
+  state: string
+  status: string
+  cpu_percent: number
+  mem_bytes: number
+  mem_limit_bytes: number
+  mem_percent: number
+}
+
+interface MountEntry {
+  mount: string
+  used_percent: number
+  total_bytes: number
+  available_bytes: number
+  inodes_used_percent?: number | null
+}
+
+interface TempEntry {
+  label: string
+  celsius: number
+}
+
+interface SystemdEntry {
+  name: string
+  active_state: string
+  sub_state: string
+}
+
+const detailsTab = ref<string | null>('processes')
+
+const latestDetails = computed<Record<string, unknown>>(() => {
+  const raw = (server.value as (ServerRecord & { latest_details?: Record<string, unknown> }) | undefined)
+    ?.latest_details
+  return raw && typeof raw === 'object' ? raw : {}
+})
+
+const topProcesses = computed<ProcessEntry[]>(() =>
+  Array.isArray(latestDetails.value.top_processes) ? (latestDetails.value.top_processes as ProcessEntry[]) : [],
+)
+
+const processCount = computed<number | null>(() =>
+  typeof latestDetails.value.process_count === 'number' ? latestDetails.value.process_count : null,
+)
+
+const dockerContainers = computed<DockerEntry[]>(() =>
+  Array.isArray(latestDetails.value.docker_containers)
+    ? (latestDetails.value.docker_containers as DockerEntry[])
+    : [],
+)
+
+const mountEntries = computed<MountEntry[]>(() =>
+  Array.isArray(latestDetails.value.mounts) ? (latestDetails.value.mounts as MountEntry[]) : [],
+)
+
+const tempEntries = computed<TempEntry[]>(() =>
+  Array.isArray(latestDetails.value.temperatures) ? (latestDetails.value.temperatures as TempEntry[]) : [],
+)
+
+const systemdUnits = computed<SystemdEntry[]>(() =>
+  Array.isArray(latestDetails.value.systemd_units) ? (latestDetails.value.systemd_units as SystemdEntry[]) : [],
+)
+
+const hasRichDetails = computed(
+  () =>
+    topProcesses.value.length > 0 ||
+    dockerContainers.value.length > 0 ||
+    mountEntries.value.length > 0 ||
+    tempEntries.value.length > 0 ||
+    systemdUnits.value.length > 0,
+)
 
 const editOpen = ref(false)
 const editName = ref('')
@@ -423,6 +505,154 @@ function handleRefreshAll() {
           unit="number"
         />
       </div>
+
+      <section v-if="hasRichDetails" class="details-section card" aria-label="Host process and container details">
+        <header class="details-head">
+          <div>
+            <h2>Host Diagnostics</h2>
+            <p class="drawer-sub">
+              <template v-if="processCount !== null">Processes: {{ processCount }}</template>
+              <template v-if="typeof latestDetails.cpu_iowait_percent === 'number'">
+                &middot; IOWait: {{ Number(latestDetails.cpu_iowait_percent).toFixed(1) }}%
+              </template>
+              <template v-if="typeof latestDetails.cpu_steal_percent === 'number'">
+                &middot; Steal: {{ Number(latestDetails.cpu_steal_percent).toFixed(1) }}%
+              </template>
+              <template v-if="typeof latestDetails.disk_iops_read === 'number'">
+                &middot; Disk IOPS: {{ Number(latestDetails.disk_iops_read).toFixed(0) }}R /
+                {{ Number(latestDetails.disk_iops_write || 0).toFixed(0) }}W
+              </template>
+            </p>
+          </div>
+        </header>
+
+        <Tabs v-model="detailsTab">
+          <TabsList aria-label="Host diagnostic tabs">
+            <TabsTab value="processes">Processes ({{ topProcesses.length }})</TabsTab>
+            <TabsTab value="docker">Docker ({{ dockerContainers.length }})</TabsTab>
+            <TabsTab value="disks">Disks &amp; Temps ({{ mountEntries.length }})</TabsTab>
+            <TabsTab value="systemd">Systemd ({{ systemdUnits.length }})</TabsTab>
+          </TabsList>
+
+          <TabsPanel value="processes" class="diag-panel">
+            <div v-if="topProcesses.length === 0" class="drawer-sub">No process data reported yet.</div>
+            <div v-else class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>PID</th>
+                    <th>Process</th>
+                    <th class="num">CPU</th>
+                    <th class="num">Memory</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="proc in topProcesses" :key="proc.pid">
+                    <td class="mono tabular">{{ proc.pid }}</td>
+                    <td><strong>{{ proc.name }}</strong></td>
+                    <td class="num tabular">{{ proc.cpu_percent.toFixed(1) }}%</td>
+                    <td class="num tabular">{{ formatBytes(proc.mem_bytes) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </TabsPanel>
+
+          <TabsPanel value="docker" class="diag-panel">
+            <div v-if="dockerContainers.length === 0" class="drawer-sub">No Docker containers detected on this host.</div>
+            <div v-else class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Container</th>
+                    <th>Image</th>
+                    <th>State</th>
+                    <th class="num">CPU</th>
+                    <th class="num">Memory</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="c in dockerContainers" :key="c.id">
+                    <td>
+                      <strong>{{ c.name }}</strong>
+                      <div class="drawer-sub mono">{{ c.id }}</div>
+                    </td>
+                    <td class="mono">{{ c.image }}</td>
+                    <td>
+                      <span class="badge" :class="c.state === 'running' ? 'badge-online' : 'badge-neutral'">
+                        {{ c.state }}
+                      </span>
+                    </td>
+                    <td class="num tabular">{{ c.cpu_percent.toFixed(1) }}%</td>
+                    <td class="num tabular">
+                      {{ formatBytes(c.mem_bytes) }}
+                      <span v-if="c.mem_limit_bytes > 0" class="drawer-sub">({{ c.mem_percent.toFixed(1) }}%)</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </TabsPanel>
+
+          <TabsPanel value="disks" class="diag-panel">
+            <div v-if="mountEntries.length > 0" class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Mount</th>
+                    <th class="num">Used %</th>
+                    <th class="num">Inodes %</th>
+                    <th class="num">Available / Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="m in mountEntries" :key="m.mount">
+                    <td class="mono">{{ m.mount }}</td>
+                    <td class="num tabular">{{ m.used_percent.toFixed(1) }}%</td>
+                    <td class="num tabular">
+                      {{ typeof m.inodes_used_percent === 'number' ? `${m.inodes_used_percent.toFixed(1)}%` : '--' }}
+                    </td>
+                    <td class="num tabular">
+                      {{ formatBytes(m.available_bytes) }} / {{ formatBytes(m.total_bytes) }}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div v-if="tempEntries.length > 0" class="temp-strip">
+              <span v-for="t in tempEntries" :key="t.label" class="badge badge-neutral tabular">
+                {{ t.label }}: {{ t.celsius.toFixed(1) }}°C
+              </span>
+            </div>
+          </TabsPanel>
+
+          <TabsPanel value="systemd" class="diag-panel">
+            <div v-if="systemdUnits.length === 0" class="drawer-sub">No systemd services reported for this host.</div>
+            <div v-else class="table-wrap">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Unit</th>
+                    <th>State</th>
+                    <th>Sub-state</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="u in systemdUnits" :key="u.name">
+                    <td class="mono">{{ u.name }}</td>
+                    <td>
+                      <span class="badge" :class="u.active_state === 'failed' ? 'badge-critical' : 'badge-online'">
+                        {{ u.active_state }}
+                      </span>
+                    </td>
+                    <td class="mono">{{ u.sub_state }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </TabsPanel>
+        </Tabs>
+      </section>
     </template>
 
     <Drawer v-model:open="editOpen" side="right">
@@ -688,6 +918,34 @@ function handleRefreshAll() {
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+.details-section {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.details-head h2 {
+  font-size: 1.05rem;
+}
+
+.diag-panel {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.temp-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 @media (max-width: 960px) {

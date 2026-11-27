@@ -1,14 +1,16 @@
 [package]
 name = "sysroar-agent"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "GPL-3.0-only"
 repository = "https://github.com/kbtale/sysroar"
 description = "Lightweight cross-platform telemetry agent for SysRoar"
 
 [dependencies]
+bollard = { version = "0.19", default-features = false, features = ["pipe", "http"] }
 chrono = { version = "0.4", features = ["serde"] }
 flate2 = "1"
+futures-util = "0.3"
 rand = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["json", "gzip", "rustls-tls"] }
 rusqlite = { version = "0.32", features = ["bundled"] }

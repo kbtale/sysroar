@@ -121,15 +121,27 @@ class ServerViewSet(TenantScopedViewSetMixin, viewsets.ModelViewSet):
 
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
+        company_id = getattr(request.user, 'company_id', None)
         live_heartbeats, alert_statuses, sparklines = _compute_server_overlays(
-            getattr(request.user, 'company_id', None),
+            company_id,
             [instance],
         )
+        latest_details: dict[str, dict] = {}
+        if company_id:
+            latest_row = (
+                MetricLog.unscoped.filter(company_id=company_id, server_id=instance.id)
+                .order_by('-timestamp')
+                .values_list('details', flat=True)
+                .first()
+            )
+            if isinstance(latest_row, dict):
+                latest_details[str(instance.id)] = latest_row
         context = {
             **self.get_serializer_context(),
             'live_heartbeats': live_heartbeats,
             'alert_statuses': alert_statuses,
             'sparklines': sparklines,
+            'latest_details': latest_details,
         }
         return Response(self.get_serializer(instance, context=context).data)
 

@@ -60,6 +60,26 @@ describe('ServerDetailView', () => {
             status: 'online',
             alert_status: 'ok',
             sparkline: [],
+            latest_details: {
+              process_count: 92,
+              cpu_iowait_percent: 1.4,
+              disk_iops_read: 55,
+              disk_iops_write: 20,
+              top_processes: [{ pid: 101, name: 'postgres', cpu_percent: 12.5, mem_bytes: 268435456 }],
+              docker_containers: [
+                {
+                  id: 'abc123456789',
+                  name: 'web-proxy',
+                  image: 'nginx:1.27',
+                  state: 'running',
+                  status: 'Up 2h',
+                  cpu_percent: 2.1,
+                  mem_bytes: 33554432,
+                  mem_limit_bytes: 268435456,
+                  mem_percent: 12.5,
+                },
+              ],
+            },
             created_at: '2026-11-26T00:00:00Z',
           },
         } as never
@@ -121,6 +141,14 @@ describe('ServerDetailView', () => {
     expect(wrapper.text()).toContain('16.0 GiB')
     expect(wrapper.text()).toContain('1d 1h 0m')
     expect(wrapper.text()).toContain('CPU Usage:1')
+    expect(wrapper.text()).toContain('Host Diagnostics')
+    expect(wrapper.text()).toContain('postgres')
+
+    const dockerTab = wrapper.findAll('[role="tab"]').find((t) => t.text().includes('Docker'))
+    expect(dockerTab).toBeTruthy()
+    await dockerTab!.trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('web-proxy')
 
     const range24h = wrapper.findAll('[data-slot="segmented-control-item"]').find((el) => el.text().trim() === '24h')
     expect(range24h).toBeTruthy()
