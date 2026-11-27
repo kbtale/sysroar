@@ -14,6 +14,7 @@ from accounts.authentication import (
     TenantSessionAuthentication,
     TenantTokenAuthentication,
 )
+from accounts.throttling import LoginRateThrottle
 from monitoring.heartbeat import record_heartbeat, record_heartbeats_batch
 from monitoring.metrics import INGEST_SAMPLES_TOTAL
 from monitoring.models import AgentKey, EnrollmentToken, Server
@@ -290,6 +291,7 @@ class TelemetryConfigView(APIView):
 class TelemetryEnrollView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
+    throttle_classes = [LoginRateThrottle]
 
     def post(self, request, *args, **kwargs):
         serializer = AgentEnrollmentSerializer(data=request.data)

@@ -33,6 +33,14 @@ class ServerIngestRateThrottle(SimpleRateThrottle):
         if not user or not user.is_authenticated:
             return None
 
+        if getattr(user, 'is_agent', False):
+            agent_key = getattr(user, 'agent_key', None)
+            if agent_key is not None:
+                return self.cache_format % {
+                    'scope': self.scope,
+                    'ident': f'agent_key:{agent_key.id}',
+                }
+
         company_id = getattr(user, 'company_id', None)
         server_uuids = self._extract_server_uuids(request)
         ident = f'invalid:{user.pk}'

@@ -1,5 +1,6 @@
 import os
 import tempfile
+from datetime import timedelta
 from pathlib import Path
 import environ
 from celery.schedules import crontab
@@ -62,6 +63,7 @@ INSTALLED_APPS = [
     'rest_framework.authtoken',
     'django_extensions',
     'channels',
+    'axes',
     # Core Apps
     'accounts',
     'telemetry',
@@ -81,6 +83,12 @@ MIDDLEWARE = [
     'accounts.middleware.CurrentTenantMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'axes.middleware.AxesMiddleware',
+]
+
+AUTHENTICATION_BACKENDS = [
+    'axes.backends.AxesStandaloneBackend',
+    'django.contrib.auth.backends.ModelBackend',
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -143,10 +151,13 @@ REST_FRAMEWORK = {
         'rest_framework.permissions.IsAuthenticated',
     ),
     'DEFAULT_THROTTLE_CLASSES': (
+        'rest_framework.throttling.AnonRateThrottle',
         'rest_framework.throttling.UserRateThrottle',
     ),
     'DEFAULT_THROTTLE_RATES': {
-        'user': '120/min',
+        'anon': env('ANON_THROTTLE_RATE', default='60/min'),
+        'user': env('USER_THROTTLE_RATE', default='120/min'),
+        'login': env('LOGIN_THROTTLE_RATE', default='10/min'),
         'telemetry_ingest': env('TELEMETRY_INGEST_THROTTLE_RATE', default='60/min'),
     },
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
@@ -279,6 +290,16 @@ METRICS_AUTH_TOKEN = env('METRICS_AUTH_TOKEN', default='')
 READY_MAX_STREAM_LAG = env.int('READY_MAX_STREAM_LAG', default=10000)
 OPEN_REGISTRATION = env.bool('OPEN_REGISTRATION', default=False)
 FRONTEND_URL = env('FRONTEND_URL', default='http://localhost:5173')
+FAILED_AUTH_DEDUP_WINDOW_SECONDS = env.int('FAILED_AUTH_DEDUP_WINDOW_SECONDS', default=60)
+FAILED_AUTH_SAMPLE_EVERY = env.int('FAILED_AUTH_SAMPLE_EVERY', default=50)
+AXES_HANDLER = 'axes.handlers.cache.AxesCacheHandler'
+AXES_CACHE = 'default'
+AXES_FAILURE_LIMIT = env.int('AXES_FAILURE_LIMIT', default=5)
+AXES_COOLOFF_TIME = timedelta(minutes=env.int('AXES_COOLOFF_MINUTES', default=15))
+AXES_RESET_ON_SUCCESS = True
+AXES_LOCKOUT_PARAMETERS = [['username', 'ip_address']]
+AXES_LOCKOUT_CALLABLE = 'accounts.views.axes_lockout_response'
+AXES_VERBOSE = False
 SENTRY_DSN = env('SENTRY_DSN', default='')
 SENTRY_TRACES_SAMPLE_RATE = env.float('SENTRY_TRACES_SAMPLE_RATE', default=0.0)
 
