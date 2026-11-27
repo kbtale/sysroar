@@ -3,6 +3,7 @@ from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model, login, logout
 from django.core.mail import send_mail
 from django.db import transaction
+from django.http import JsonResponse
 from django.middleware.csrf import get_token
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -15,6 +16,7 @@ from .authentication import ticket_manager
 from .mixins import TenantScopedViewSetMixin
 from .models import Company, CompanyInvite, User
 from .permissions import IsCompanyAdmin, IsInstanceAdmin
+from .throttling import LoginRateThrottle
 from .serializers import (
     AcceptInviteSerializer,
     CompanyInviteCreateSerializer,
@@ -63,9 +65,17 @@ class CsrfTokenView(APIView):
         return Response({'csrfToken': get_token(request)}, status=status.HTTP_200_OK)
 
 
+def axes_lockout_response(request, credentials=None, *args, **kwargs):
+    return JsonResponse(
+        {'error': 'Account temporarily locked due to too many failed login attempts.'},
+        status=429,
+    )
+
+
 class SessionLoginView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
+    throttle_classes = [LoginRateThrottle]
 
     def post(self, request):
         username = (request.data.get('username') or '').strip()
@@ -76,7 +86,13 @@ class SessionLoginView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        user = authenticate(request=request, username=username, password=password)
+        django_request = getattr(request, '_request', request)
+        user = authenticate(request=django_request, username=username, password=password)
+        if getattr(django_request, 'axes_locked_out', False):
+            return Response(
+                {'error': 'Account temporarily locked due to too many failed login attempts.'},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
         if user is None or not user.is_active:
             return Response(
                 {'error': 'Invalid credentials.'},
@@ -160,7 +176,7 @@ class SetupWizardView(APIView):
                 role=User.ROLE_OWNER,
             )
 
-        login(request, user)
+        login(request, user, backend='django.contrib.auth.backends.ModelBackend')
         return Response(
             {
                 'user': serialize_user(user),
@@ -173,6 +189,7 @@ class SetupWizardView(APIView):
 class OpenRegistrationView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
+    throttle_classes = [LoginRateThrottle]
 
     def post(self, request):
         if not getattr(settings, 'OPEN_REGISTRATION', False):
@@ -194,7 +211,7 @@ class OpenRegistrationView(APIView):
                 role=User.ROLE_OWNER,
             )
 
-        login(request, user)
+        login(request, user, backend='django.contrib.auth.backends.ModelBackend')
         return Response(
             {
                 'user': serialize_user(user),
@@ -267,6 +284,7 @@ class CompanyInviteViewSet(
 class AcceptInviteView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
+    throttle_classes = [LoginRateThrottle]
 
     def post(self, request):
         serializer = AcceptInviteSerializer(data=request.data)
@@ -299,7 +317,7 @@ class AcceptInviteView(APIView):
             invite.accepted_at = now
             invite.save(update_fields=['accepted_at'])
 
-        login(request, user)
+        login(request, user, backend='django.contrib.auth.backends.ModelBackend')
         return Response({'user': serialize_user(user)}, status=status.HTTP_201_CREATED)
 
 

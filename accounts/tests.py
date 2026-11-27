@@ -495,3 +495,153 @@ class SelfHostedTenancyAndRbacTests(TestCase):
             c_super.post('/api/accounts/companies/', {'name': 'MSP Client C'}, format='json').status_code,
             201,
         )
+
+
+class ThrottleLockoutAndDedupTests(TestCase):
+    def setUp(self):
+        from django.core.cache import cache
+
+        cache.clear()
+        self.company = Company.objects.create(name='Throttle Corp')
+        self.user = User.objects.create_user(
+            username='lockout_user',
+            email='lockout@example.com',
+            password='VeryStrongPassword!99',
+            company=self.company,
+            role=User.ROLE_ADMIN,
+        )
+        self.server_1 = Server.unscoped.create(name='node-1', company=self.company, is_active=True)
+        self.server_2 = Server.unscoped.create(name='node-2', company=self.company, is_active=True)
+
+    def tearDown(self):
+        from django.core.cache import cache
+
+        cache.clear()
+
+    def test_axes_locks_out_after_repeated_failed_logins(self):
+        from django.test import override_settings
+        from rest_framework.test import APIClient
+
+        client = APIClient()
+        with override_settings(
+            AXES_FAILURE_LIMIT=3,
+            REST_FRAMEWORK={
+                **self._get_drf_settings(),
+                'DEFAULT_THROTTLE_RATES': {
+                    'anon': '1000/min',
+                    'user': '1000/min',
+                    'login': '1000/min',
+                    'telemetry_ingest': '60/min',
+                },
+            },
+        ):
+            r1 = client.post(
+                '/api/accounts/auth/login/',
+                {'username': 'lockout_user', 'password': 'wrong-password'},
+                format='json',
+                REMOTE_ADDR='198.51.100.10',
+            )
+            r2 = client.post(
+                '/api/accounts/auth/login/',
+                {'username': 'lockout_user', 'password': 'wrong-password'},
+                format='json',
+                REMOTE_ADDR='198.51.100.10',
+            )
+            r3 = client.post(
+                '/api/accounts/auth/login/',
+                {'username': 'lockout_user', 'password': 'wrong-password'},
+                format='json',
+                REMOTE_ADDR='198.51.100.10',
+            )
+            self.assertEqual(r1.status_code, 401)
+            self.assertEqual(r2.status_code, 401)
+            self.assertEqual(r3.status_code, 429)
+
+            locked_valid = client.post(
+                '/api/accounts/auth/login/',
+                {'username': 'lockout_user', 'password': 'VeryStrongPassword!99'},
+                format='json',
+                REMOTE_ADDR='198.51.100.10',
+            )
+            self.assertEqual(locked_valid.status_code, 429)
+
+            other_ip = client.post(
+                '/api/accounts/auth/login/',
+                {'username': 'lockout_user', 'password': 'VeryStrongPassword!99'},
+                format='json',
+                REMOTE_ADDR='198.51.100.11',
+            )
+            self.assertEqual(other_ip.status_code, 200)
+
+    def _get_drf_settings(self):
+        from django.conf import settings
+
+        return dict(settings.REST_FRAMEWORK)
+
+    def test_failed_authentication_events_are_deduplicated_and_sampled(self):
+        from unittest.mock import patch
+        from django_redis import get_redis_connection
+        from rest_framework.test import APIClient
+
+        con = get_redis_connection('default')
+        con.delete('sysroar:auth_fail:198.51.100.55:/api/monitoring/servers/')
+
+        client = APIClient()
+        with patch('monitoring.tasks.record_system_event.delay') as mock_record:
+            for _ in range(15):
+                resp = client.get('/api/monitoring/servers/', REMOTE_ADDR='198.51.100.55')
+                self.assertEqual(resp.status_code, 401)
+
+        self.assertEqual(mock_record.call_count, 1)
+
+    def test_per_agent_key_ingest_throttle_isolates_hosts(self):
+        from unittest.mock import patch
+        from django.urls import reverse
+        from rest_framework.test import APIClient
+        from monitoring.models import AgentKey
+        from telemetry.throttling import ServerIngestRateThrottle
+
+        _, key_1 = AgentKey.generate(server=self.server_1, created_by=self.user)
+        _, key_2 = AgentKey.generate(server=self.server_2, created_by=self.user)
+
+        c1 = APIClient()
+        c1.credentials(HTTP_AUTHORIZATION=f'AgentKey {key_1}')
+        c2 = APIClient()
+        c2.credentials(HTTP_AUTHORIZATION=f'AgentKey {key_2}')
+
+        with (
+            patch.object(ServerIngestRateThrottle, 'get_rate', return_value='2/min'),
+            patch('telemetry.views.push_to_stream'),
+        ):
+            self.assertEqual(
+                c1.post(
+                    reverse('telemetry-ingest'),
+                    {'server': str(self.server_1.id), 'cpu_usage': 10.0, 'ram_usage': 20.0},
+                    format='json',
+                ).status_code,
+                202,
+            )
+            self.assertEqual(
+                c1.post(
+                    reverse('telemetry-ingest'),
+                    {'server': str(self.server_1.id), 'cpu_usage': 11.0, 'ram_usage': 21.0},
+                    format='json',
+                ).status_code,
+                202,
+            )
+            self.assertEqual(
+                c1.post(
+                    reverse('telemetry-ingest'),
+                    {'server': str(self.server_1.id), 'cpu_usage': 12.0, 'ram_usage': 22.0},
+                    format='json',
+                ).status_code,
+                429,
+            )
+            self.assertEqual(
+                c2.post(
+                    reverse('telemetry-ingest'),
+                    {'server': str(self.server_2.id), 'cpu_usage': 12.0, 'ram_usage': 22.0},
+                    format='json',
+                ).status_code,
+                202,
+            )
