@@ -58,28 +58,13 @@ const apiBaseUrl = computed(() => {
 const linuxCommand = computed(() => {
   const base = apiBaseUrl.value
   const tk = enrollmentToken.value
-  return [
-    `ENROLL=$(curl -fsSL -X POST "${base}/api/telemetry/enroll/" \\`,
-    `  -H "Content-Type: application/json" \\`,
-    `  -d "{\\"enrollment_token\\":\\"${tk}\\",\\"name\\":\\"$(hostname)\\",\\"hostname\\":\\"$(hostname)\\"}")`,
-    `export SYSROAR_API_BASE_URL="${base}"`,
-    `export SYSROAR_SERVER_ID=$(echo "$ENROLL" | sed -n 's/.*"server_id":"\\([^"]*\\)".*/\\1/p')`,
-    `export SYSROAR_AGENT_KEY=$(echo "$ENROLL" | sed -n 's/.*"agent_key":"\\([^"]*\\)".*/\\1/p')`,
-    `sysroar-agent`,
-  ].join('\n')
+  return `curl -fsSL https://raw.githubusercontent.com/kbtale/sysroar/main/scripts/install.sh | sudo SYSROAR_API_BASE_URL="${base}" SYSROAR_ENROLLMENT_TOKEN="${tk}" sh`
 })
 
 const windowsCommand = computed(() => {
   const base = apiBaseUrl.value
   const tk = enrollmentToken.value
-  return [
-    `$body = @{ enrollment_token = "${tk}"; name = $env:COMPUTERNAME; hostname = $env:COMPUTERNAME } | ConvertTo-Json`,
-    `$res = Invoke-RestMethod -Method Post -Uri "${base}/api/telemetry/enroll/" -ContentType "application/json" -Body $body`,
-    `$env:SYSROAR_API_BASE_URL = "${base}"`,
-    `$env:SYSROAR_SERVER_ID = $res.server_id`,
-    `$env:SYSROAR_AGENT_KEY = $res.agent_key`,
-    `sysroar-agent.exe`,
-  ].join('\n')
+  return `$env:SYSROAR_API_BASE_URL="${base}"; $env:SYSROAR_ENROLLMENT_TOKEN="${tk}"; irm https://raw.githubusercontent.com/kbtale/sysroar/main/scripts/install.ps1 | iex`
 })
 
 const dockerCommand = computed(() => {

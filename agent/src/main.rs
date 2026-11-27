@@ -56,6 +56,41 @@ async fn main() {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     tracing_subscriber::fmt().json().with_env_filter(filter).init();
 
+    let check_update = std::env::args().any(|arg| arg == "--check-update");
+    if check_update {
+        let Ok(manifest_url) = std::env::var("SYSROAR_AUTO_UPDATE_URL") else {
+            error!("SYSROAR_AUTO_UPDATE_URL is required for --check-update");
+            std::process::exit(1);
+        };
+        let Ok(pubkey_hex) = std::env::var("SYSROAR_UPDATE_PUBKEY") else {
+            error!("SYSROAR_UPDATE_PUBKEY is required for --check-update");
+            std::process::exit(1);
+        };
+        let exe_path = match std::env::current_exe() {
+            Ok(p) => p,
+            Err(err) => {
+                error!(error = %err, "failed to locate current binary");
+                std::process::exit(1);
+            }
+        };
+        match sysroar_agent::updater::check_and_apply_update(
+            &manifest_url,
+            &pubkey_hex,
+            env!("CARGO_PKG_VERSION"),
+            &exe_path,
+        )
+        .await
+        {
+            Ok(true) => info!("applied verified agent update"),
+            Ok(false) => info!("agent is already up to date"),
+            Err(err) => {
+                error!(error = %err, "agent update failed");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
     let config = match AgentConfig::from_env() {
         Ok(c) => c,
         Err(err) => {
