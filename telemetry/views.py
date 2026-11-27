@@ -5,6 +5,7 @@ import logging
 import uuid
 from django.db import transaction
 from django.utils import timezone
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -14,17 +15,20 @@ from accounts.authentication import (
     TenantSessionAuthentication,
     TenantTokenAuthentication,
 )
+from accounts.permissions import IsCompanyViewer
 from accounts.throttling import LoginRateThrottle
 from monitoring.heartbeat import record_heartbeat, record_heartbeats_batch
 from monitoring.metrics import INGEST_SAMPLES_TOTAL
 from monitoring.models import AgentKey, EnrollmentToken, Server
 from .ingestion import push_batch_to_stream, push_to_stream
 from .parsers import GzipJSONParser
+from .queries import RANGE_SPECS, query_server_metrics_range
 from .serializers import (
     AgentEnrollmentSerializer,
     MetricBatchRequestSerializer,
     MetricLogSerializer,
     ServerInventorySerializer,
+    ServerMetricsHistoryResponseSerializer,
 )
 from .throttling import ServerIngestRateThrottle
 
@@ -347,3 +351,38 @@ class TelemetryEnrollView(APIView):
             },
             status=status.HTTP_201_CREATED,
         )
+
+
+class ServerMetricsHistoryView(APIView):
+    permission_classes = [IsCompanyViewer]
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name='range',
+                type=str,
+                location=OpenApiParameter.QUERY,
+                enum=list(RANGE_SPECS.keys()),
+                default='1h',
+            )
+        ],
+        responses={200: ServerMetricsHistoryResponseSerializer},
+    )
+    def get(self, request, server_id, *args, **kwargs):
+        range_key = request.query_params.get('range', '1h')
+        if range_key not in RANGE_SPECS:
+            return Response(
+                {'error': f'Invalid range. Expected one of: {", ".join(RANGE_SPECS.keys())}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        company_id = getattr(request.user, 'company_id', None)
+        if not company_id:
+            return Response({'error': 'Server not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        server = Server.unscoped.filter(id=server_id, company_id=company_id).only('id', 'company_id').first()
+        if server is None:
+            return Response({'error': 'Server not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        payload = query_server_metrics_range(company_id=company_id, server_id=server.id, range_key=range_key)
+        return Response(payload, status=status.HTTP_200_OK)

@@ -90,6 +90,7 @@ INSTALLED_APPS = [
     'django_extensions',
     'channels',
     'axes',
+    'drf_spectacular',
     # Core Apps
     'accounts',
     'telemetry',
@@ -195,6 +196,16 @@ REST_FRAMEWORK = {
     'DEFAULT_RENDERER_CLASSES': (
         'rest_framework.renderers.JSONRenderer',
     ),
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+}
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'SysRoar API',
+    'DESCRIPTION': 'Self-hosted, multi-tenant server monitoring API.',
+    'VERSION': '0.3.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'SERVE_PERMISSIONS': ['rest_framework.permissions.IsAuthenticated'],
+    'COMPONENT_SPLIT_REQUEST': True,
 }
 
 # Redis & Channels

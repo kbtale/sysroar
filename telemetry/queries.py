@@ -102,3 +102,86 @@ def query_metric_percentiles(company_id, server_id, bucket='1m', start=None, end
         cursor.execute(sql, [interval_str, str(company_id), str(server_id), effective_start, effective_end])
         columns = [col[0] for col in cursor.description]
         return [dict(zip(columns, row, strict=True)) for row in cursor.fetchall()]
+
+
+RANGE_SPECS = {
+    '15m': (timedelta(minutes=15), 'raw'),
+    '1h': (timedelta(hours=1), '1 minute'),
+    '6h': (timedelta(hours=6), '5 minutes'),
+    '24h': (timedelta(hours=24), '15 minutes'),
+    '7d': (timedelta(days=7), '1 hour'),
+    '30d': (timedelta(days=30), '1 day'),
+}
+
+
+def _round_or_none(val):
+    return round(float(val), 2) if val is not None else None
+
+
+def query_server_metrics_range(company_id, server_id, range_key: str = '1h', now=None) -> dict:
+    spec = RANGE_SPECS.get(range_key)
+    if spec is None:
+        raise ValueError(f'Unsupported range: {range_key}')
+
+    delta, bucket_mode = spec
+    end = now or timezone.now()
+    start = end - delta
+
+    if bucket_mode == 'raw':
+        sql = (
+            'SELECT timestamp AS bucket, cpu_usage AS avg_cpu, cpu_usage AS max_cpu, '
+            'ram_usage AS avg_ram, ram_usage AS max_ram, swap_usage AS avg_swap, '
+            'disk_usage AS avg_disk, disk_read_bps AS avg_disk_read_bps, '
+            'disk_write_bps AS avg_disk_write_bps, net_rx_bps AS avg_net_rx_bps, '
+            'net_tx_bps AS avg_net_tx_bps, load_1m AS avg_load_1m, uptime_seconds '
+            'FROM telemetry_metriclog '
+            'WHERE company_id = %s AND server_id = %s AND timestamp >= %s AND timestamp <= %s '
+            'ORDER BY timestamp ASC LIMIT 600'
+        )
+        params = [str(company_id), str(server_id), start, end]
+    else:
+        sql = (
+            'SELECT time_bucket(%s::interval, timestamp) AS bucket, '
+            'AVG(cpu_usage) AS avg_cpu, MAX(cpu_usage) AS max_cpu, '
+            'AVG(ram_usage) AS avg_ram, MAX(ram_usage) AS max_ram, '
+            'AVG(swap_usage) AS avg_swap, AVG(disk_usage) AS avg_disk, '
+            'AVG(disk_read_bps) AS avg_disk_read_bps, AVG(disk_write_bps) AS avg_disk_write_bps, '
+            'AVG(net_rx_bps) AS avg_net_rx_bps, AVG(net_tx_bps) AS avg_net_tx_bps, '
+            'AVG(load_1m) AS avg_load_1m, MAX(uptime_seconds) AS uptime_seconds '
+            'FROM telemetry_metriclog '
+            'WHERE company_id = %s AND server_id = %s AND timestamp >= %s AND timestamp <= %s '
+            'GROUP BY bucket ORDER BY bucket ASC'
+        )
+        params = [bucket_mode, str(company_id), str(server_id), start, end]
+
+    with connection.cursor() as cursor:
+        cursor.execute(sql, params)
+        rows = cursor.fetchall()
+
+    points = [
+        {
+            'timestamp': row[0].isoformat(),
+            'cpu': _round_or_none(row[1]),
+            'max_cpu': _round_or_none(row[2]),
+            'ram': _round_or_none(row[3]),
+            'max_ram': _round_or_none(row[4]),
+            'swap': _round_or_none(row[5]),
+            'disk': _round_or_none(row[6]),
+            'disk_read_bps': _round_or_none(row[7]),
+            'disk_write_bps': _round_or_none(row[8]),
+            'net_rx_bps': _round_or_none(row[9]),
+            'net_tx_bps': _round_or_none(row[10]),
+            'load_1m': _round_or_none(row[11]),
+            'uptime_seconds': int(row[12]) if row[12] is not None else None,
+        }
+        for row in rows
+    ]
+
+    return {
+        'server_id': str(server_id),
+        'range': range_key,
+        'bucket': bucket_mode,
+        'start': start.isoformat(),
+        'end': end.isoformat(),
+        'points': points,
+    }

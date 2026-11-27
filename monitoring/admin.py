@@ -3,9 +3,13 @@ from accounts.admin import TenantAwareModelAdmin
 from .models import (
     AgentKey,
     AlertRule,
+    AlertSilence,
     AlertState,
     AuditLog,
     EnrollmentToken,
+    Incident,
+    IncidentComment,
+    NotificationChannel,
     NotificationOutbox,
     Server,
     ServerAlertState,
@@ -95,3 +99,25 @@ class AuditLogAdmin(TenantAwareModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+@admin.register(NotificationChannel)
+class NotificationChannelAdmin(TenantAwareModelAdmin):
+    list_display = ('name', 'channel_type', 'company', 'is_default', 'is_active', 'created_at')
+    list_filter = ('channel_type', 'is_default', 'is_active', 'company')
+
+
+@admin.register(Incident)
+class IncidentAdmin(TenantAwareModelAdmin):
+    list_display = ('title', 'server', 'severity', 'status', 'opened_at', 'resolved_at')
+    list_filter = ('severity', 'status', 'company')
+
+
+@admin.register(IncidentComment)
+class IncidentCommentAdmin(TenantAwareModelAdmin):
+    list_display = ('incident', 'author_username', 'created_at')
+
+
+@admin.register(AlertSilence)
+class AlertSilenceAdmin(TenantAwareModelAdmin):
+    list_display = ('company', 'server', 'rule', 'starts_at', 'ends_at', 'reason')

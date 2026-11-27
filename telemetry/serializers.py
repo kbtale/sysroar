@@ -180,3 +180,28 @@ class AgentEnrollmentSerializer(serializers.Serializer):
 
     def validate_agent_version(self, value):
         return self._clean(value)
+
+
+class MetricHistoryPointSerializer(serializers.Serializer):
+    timestamp = serializers.DateTimeField()
+    cpu = serializers.FloatField(allow_null=True)
+    max_cpu = serializers.FloatField(allow_null=True)
+    ram = serializers.FloatField(allow_null=True)
+    max_ram = serializers.FloatField(allow_null=True)
+    swap = serializers.FloatField(allow_null=True)
+    disk = serializers.FloatField(allow_null=True)
+    disk_read_bps = serializers.FloatField(allow_null=True)
+    disk_write_bps = serializers.FloatField(allow_null=True)
+    net_rx_bps = serializers.FloatField(allow_null=True)
+    net_tx_bps = serializers.FloatField(allow_null=True)
+    load_1m = serializers.FloatField(allow_null=True)
+    uptime_seconds = serializers.IntegerField(allow_null=True)
+
+
+class ServerMetricsHistoryResponseSerializer(serializers.Serializer):
+    server_id = serializers.UUIDField()
+    range = serializers.CharField()
+    bucket = serializers.CharField()
+    start = serializers.DateTimeField()
+    end = serializers.DateTimeField()
+    points = MetricHistoryPointSerializer(many=True)
