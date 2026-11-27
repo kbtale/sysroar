@@ -1,6 +1,15 @@
 from django.contrib import admin
 from accounts.admin import TenantAwareModelAdmin
-from .models import AgentKey, AlertRule, AlertState, EnrollmentToken, NotificationOutbox, Server, ServerAlertState
+from .models import (
+    AgentKey,
+    AlertRule,
+    AlertState,
+    AuditLog,
+    EnrollmentToken,
+    NotificationOutbox,
+    Server,
+    ServerAlertState,
+)
 
 
 @admin.register(Server)
@@ -58,3 +67,31 @@ class AgentKeyAdmin(TenantAwareModelAdmin):
     list_display = ('prefix', 'server', 'company', 'is_active', 'last_used_at', 'revoked_at')
     list_filter = ('is_active', 'company')
     readonly_fields = ('id', 'prefix', 'key_hash', 'created_at', 'last_used_at', 'revoked_at')
+
+
+@admin.register(AuditLog)
+class AuditLogAdmin(TenantAwareModelAdmin):
+    list_display = ('created_at', 'company', 'actor_username', 'action', 'resource_type', 'resource_id')
+    list_filter = ('action', 'resource_type', 'company')
+    readonly_fields = (
+        'id',
+        'company',
+        'actor',
+        'actor_username',
+        'action',
+        'resource_type',
+        'resource_id',
+        'metadata',
+        'ip_address',
+        'correlation_id',
+        'created_at',
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False

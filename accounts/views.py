@@ -17,6 +17,7 @@ from .mixins import TenantScopedViewSetMixin
 from .models import Company, CompanyInvite, User
 from .permissions import IsCompanyAdmin, IsInstanceAdmin
 from .throttling import LoginRateThrottle
+from monitoring.audit import record_audit_event
 from .serializers import (
     AcceptInviteSerializer,
     CompanyInviteCreateSerializer,
@@ -273,11 +274,25 @@ class CompanyInviteViewSet(
         response_data['invite_url'] = invite_url
         response_data['token'] = raw_token
         response_data['email_sent'] = email_sent
+        record_audit_event(
+            request,
+            action='invite.created',
+            resource_type='company_invite',
+            resource_id=str(invite.id),
+            metadata={'email': invite.email, 'role': invite.role, 'prefix': invite.prefix},
+        )
         return Response(response_data, status=status.HTTP_201_CREATED)
 
     def destroy(self, request, *args, **kwargs):
         invite = self.get_object()
         invite.revoke()
+        record_audit_event(
+            request,
+            action='invite.revoked',
+            resource_type='company_invite',
+            resource_id=str(invite.id),
+            metadata={'email': invite.email, 'prefix': invite.prefix},
+        )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -367,6 +382,13 @@ class CompanyMemberViewSet(
         serializer.save()
         if not member.is_active:
             member.invalidate_all_sessions()
+        record_audit_event(
+            request,
+            action='member.updated',
+            resource_type='user',
+            resource_id=str(member.id),
+            metadata={'username': member.username, 'role': member.role, 'is_active': member.is_active},
+        )
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
@@ -395,3 +417,14 @@ class CompanyViewSet(
         if user.company_id:
             return Company.objects.filter(id=user.company_id)
         return Company.objects.none()
+
+    def perform_update(self, serializer):
+        company = serializer.save()
+        record_audit_event(
+            self.request,
+            action='company.updated',
+            resource_type='company',
+            resource_id=str(company.id),
+            metadata={'name': company.name, 'retention_days': company.retention_days},
+            company_id=company.id,
+        )

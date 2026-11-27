@@ -305,3 +305,31 @@ class AgentKey(TenantModel):
 
     def __str__(self):
         return f'AgentKey({self.prefix} -> {self.server_id})'
+
+
+class AuditLog(TenantModel):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='audit_logs',
+    )
+    actor_username = models.CharField(max_length=150, blank=True, default='')
+    action = models.CharField(max_length=64, db_index=True)
+    resource_type = models.CharField(max_length=64, db_index=True)
+    resource_id = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    metadata = models.JSONField(default=dict, blank=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    correlation_id = models.CharField(max_length=64, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['company', '-created_at']),
+        ]
+
+    def __str__(self):
+        return f'{self.actor_username} {self.action} {self.resource_type}:{self.resource_id}'
