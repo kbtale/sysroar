@@ -45,18 +45,18 @@ test.describe('SysRoar Phase 4 Competitive Features E2E Acceptance', () => {
 
     await page.getByRole('link', { name: 'Uptime' }).click()
     await expect(page).toHaveURL(/\/uptime/)
-    await expect(page.getByRole('heading', { name: /Uptime Checks/i })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Uptime Monitoring' })).toBeVisible()
 
     await page.getByRole('button', { name: 'Add Check' }).click()
     await expect(page.getByRole('heading', { name: 'New Uptime Check' })).toBeVisible()
     await page.getByLabel('Check Name').fill('Local Healthz Probe')
-    await page.getByLabel('Endpoint URL').fill(`${API_BASE}/healthz`)
+    await page.getByLabel('Endpoint URL').fill('http://127.0.0.1:8000/healthz')
     await page.locator('.switch-row [role="switch"]').click()
     await page.getByRole('button', { name: 'Create Check' }).click()
     await expect(page.getByRole('heading', { name: 'New Uptime Check' })).toBeHidden()
     await expect(page.getByText('Local Healthz Probe')).toBeVisible()
 
-    await page.getByRole('button', { name: /Run Now/i }).first().click()
+    await page.getByRole('button', { name: 'Run', exact: true }).first().click()
     await expect(page.getByText('up', { exact: true }).first()).toBeVisible({ timeout: 15000 })
 
     await page.getByRole('link', { name: 'Alerts' }).click()
