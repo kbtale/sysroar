@@ -1,6 +1,8 @@
 import hmac
 import logging
+import redis
 from django.conf import settings
+from django.db import connection
 from django.http import HttpResponse
 from django.views.decorators.http import require_http_methods
 from prometheus_client import CONTENT_TYPE_LATEST, CollectorRegistry, Counter, Gauge, Histogram, generate_latest
@@ -60,9 +62,51 @@ NOTIFICATION_OUTBOX_FAILED_TOTAL = Counter(
     'Total failed notification outbox delivery attempts',
     registry=METRICS_REGISTRY,
 )
+ACTIVE_SERVERS_TOTAL = Gauge(
+    'sysroar_active_servers_total',
+    'Current count of active monitored servers',
+    registry=METRICS_REGISTRY,
+)
+OPEN_INCIDENTS_TOTAL = Gauge(
+    'sysroar_open_incidents_total',
+    'Current count of open or acknowledged incidents',
+    registry=METRICS_REGISTRY,
+)
+UPTIME_CHECKS_DOWN_TOTAL = Gauge(
+    'sysroar_uptime_checks_down_total',
+    'Current count of active uptime checks reporting down',
+    registry=METRICS_REGISTRY,
+)
+DB_UP = Gauge(
+    'sysroar_db_up',
+    'Database connectivity status (1=up, 0=down)',
+    registry=METRICS_REGISTRY,
+)
+REDIS_UP = Gauge(
+    'sysroar_redis_up',
+    'Redis connectivity status (1=up, 0=down)',
+    registry=METRICS_REGISTRY,
+)
+WS_ACTIVE_CONNECTIONS = Gauge(
+    'sysroar_ws_active_connections',
+    'Active WebSocket client connections',
+    registry=METRICS_REGISTRY,
+)
 
 
 def refresh_live_gauges():
+    client = None
+    try:
+        client = redis.Redis.from_url(settings.REDIS_URL, socket_connect_timeout=2, socket_timeout=2)
+        client.ping()
+        REDIS_UP.set(1)
+    except Exception:
+        REDIS_UP.set(0)
+        logger.warning('Failed to ping Redis for metrics gauge', exc_info=True)
+    finally:
+        if client is not None:
+            client.close()
+
     try:
         stream_metrics = get_stream_metrics()
         INGEST_STREAM_LENGTH.set(stream_metrics.get('stream_length', 0))
@@ -73,12 +117,23 @@ def refresh_live_gauges():
         logger.warning('Failed to refresh stream metrics gauges', exc_info=True)
 
     try:
-        from monitoring.models import NotificationOutbox
-
-        pending_outbox = NotificationOutbox.unscoped.filter(status='PENDING').count()
-        NOTIFICATION_OUTBOX_PENDING.set(pending_outbox)
+        with connection.cursor() as cursor:
+            cursor.execute('SELECT 1')
+            cursor.fetchone()
+        DB_UP.set(1)
     except Exception:
-        logger.warning('Failed to refresh outbox pending gauge', exc_info=True)
+        DB_UP.set(0)
+        logger.warning('Failed to check database connectivity for metrics gauge', exc_info=True)
+
+    try:
+        from monitoring.models import Incident, NotificationOutbox, Server, UptimeCheck
+
+        NOTIFICATION_OUTBOX_PENDING.set(NotificationOutbox.unscoped.filter(status='PENDING').count())
+        ACTIVE_SERVERS_TOTAL.set(Server.unscoped.filter(is_active=True).count())
+        OPEN_INCIDENTS_TOTAL.set(Incident.unscoped.filter(status__in=['open', 'acknowledged']).count())
+        UPTIME_CHECKS_DOWN_TOTAL.set(UptimeCheck.unscoped.filter(is_active=True, last_status='down').count())
+    except Exception:
+        logger.warning('Failed to refresh platform database gauges', exc_info=True)
 
 
 def _extract_bearer_token(request) -> str:
