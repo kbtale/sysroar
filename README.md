@@ -1,105 +1,116 @@
 # SysRoar
 
-SysRoar is a high-performance infrastructure monitoring and telemetry ingestion platform designed for massive horizontal scalability and robust alert management.
+Self-hosted, open-source, multi-tenant server monitoring for small teams and MSPs: one-line Rust agent, TimescaleDB rollups, real-time fleet view, smart alerts that do not spam, uptime checks, public status pages, OTLP/Prometheus open ingestion, and optional multi-tenant logs.
 
-## System Architecture
+## Highlights
 
-The platform utilizes a modern, asynchronous architecture to handle high-throughput metric streams from distributed agents.
+- **Rust Agent v2 (`agent/`):** Single static binary (`#![forbid(unsafe_code)]`) with SQLite disk buffering, gzip batching, CPU iowait/steal, mount inodes, disk IOPS, top processes, temperatures, Docker container stats (`bollard`), systemd units, optional log shipping, and Ed25519 signed auto-updates.
+- **High-Throughput Pipeline:** Django 6 + DRF -> Redis Streams (`XADD` / `XREADGROUP`) -> TimescaleDB hypertables + continuous aggregates (`5m` and `1h` rollups) + Channels WebSockets.
+- **Smart Alerting:** Durable state machine with pending durations, hysteresis, escalating cooldowns, 10 native SSRF-guarded notification channels (Email, Signed Webhook, Slack, Discord, Teams, Telegram, PagerDuty, Opsgenie, ntfy, Gotify), silences, recurring maintenance windows, simultaneous alert grouping, daily digest emails, and z-score anomaly hints.
+- **Uptime & Public Status Pages:** Built-in HTTP/TCP/SSL/DNS/Ping monitors and zero-leakage unauthenticated `/status/<slug>` pages.
+- **Open Ingestion:** Native `POST /api/telemetry/otlp/v1/metrics` (OTLP/HTTP JSON + gzip) and `POST /api/telemetry/prometheus/remote-write` (Snappy protobuf).
+- **Pluggable Multi-Tenant Logs (Off by Default):** Keep `LOG_BACKEND=none` for minimal footprint, or enable `--profile logs` (Vector + Loki with `X-Scope-OrgID` tenant isolation) or `--profile elk` (Elasticsearch + Logstash).
+- **Modern Vue 3 UI:** Built with TypeScript, Pinia, `@ui-sdk/vue`, ECharts time-series views, RBAC (`owner`, `admin`, `member`, `viewer`), dark/light mode, and mobile-responsive layouts.
 
-### Core Backend
-- **Asynchronous Ingestion**: A Django/DRF API that immediately returns `202 Accepted` after queueing payloads to Redis, decoupling the client from database latency.
-- **Write-Behind Processing**: Celery workers consume telemetry batches from Redis using **atomic Lua scripts**, ensuring safe horizontal scaling across multiple worker instances.
-- **Persistence Layer**: PostgreSQL handles structured storage with optimized `bulk_create` operations.
-- **Alert Evaluation Engine**: A dedicated engine that evaluates incoming metrics against `AlertRule` thresholds in real-time.
-- **Alert State Machine**: A sophisticated cooldown manager that prevents alert fatigue using tiered intervals (3m, 5m, 10m, 30m, 60m) and row-level database locking for concurrency safety.
+## Try Live Demo in 60 Seconds
 
-### Remote Telemetry Agent
-- **Lightweight Implementation**: A standalone Python agent utilizing `psutil` for minimal resource overhead.
-- **Metrics Collection**: High-precision gathering of CPU usage, RAM utilization, and Disk I/O throughput.
-- **Configurable Cadence**: Default 30-second telemetry push interval.
-- **Resilient Delivery**: Automatic UTC timestamping and extensible error handling.
-
-## Project Structure
-
-```text
-sysroar/
-├── accounts/          # Tenant and User management
-├── monitoring/        # Alert rules, state machine, and evaluation logic
-├── telemetry/         # High-speed ingestion API and batch workers
-├── config/            # Project settings, middleware, and logging utils
-└── agent/             # Standalone remote telemetry client
-```
-
-## Getting Started
-
-### Backend Setup (Docker)
-
-1. **Environment Configuration**:
-   Create a `.env` file in the root directory and configure mandatory variables:
-   ```env
-   SECRET_KEY=your_secret_key
-   DB_NAME=sysroar
-   DB_USER=postgres
-   DB_PASSWORD=postgres
-   REDIS_URL=redis://redis:6379/0
-   ```
-
-2. **Launch Services**:
-   ```bash
-   docker compose up -d
-   ```
-
-3. **Run Migrations**:
-   ```bash
-   docker compose exec web python manage.py migrate
-   ```
-
-### Remote Agent Setup
-
-1. **Install Dependencies**:
-   ```bash
-   pip install -r agent/requirements.txt
-   ```
-
-2. **Configure Environment**:
-   ```env
-   SYSROAR_API_URL=http://your-app-url/api/telemetry/ingest/
-   SYSROAR_API_TOKEN=your_auth_token
-   SYSROAR_SERVER_ID=uuid-of-server
-   SYSROAR_COMPANY_ID=uuid-of-company
-   ```
-
-3. **Launch Agent**:
-   ```bash
-   python agent/client.py
-   ```
-
-## Technical Stack
-- **Framework**: Django 6.x, Django REST Framework
-- **Task Queue**: Celery & Redis
-- **Database**: PostgreSQL (TimescaleDB)
-- **Monitoring**: psutil
-- **Observability**: ELK Stack, Custom Correlation ID Middleware, JSON Logging
-
-## ELK Stack (Optional)
-
-The ELK stack (Elasticsearch, Logstash, Kibana) is provided as an optional add-on for centralized log management. To enable it:
+Launch a pre-seeded 10-server simulated fleet (diurnal traffic curves, burst spikes, a flapping host, uptime checks, and `/status/demo`):
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.elk.yml up -d
+cp .env.example .env
+docker compose --profile demo up -d --build
 ```
 
-## ⚠️ Security Considerations
+Open `http://localhost:8080` and sign in with `demo` / `DemoPass2026!`, or view the public status page at `http://localhost:8080/status/demo`.
 
-> **Before deploying to production, you MUST address the following:**
+## Production Deployment
 
-| Item | Default (Dev) | Required (Prod) |
-|---|---|---|
-| Elasticsearch `xpack.security` | `false` | `true` — enable TLS and authentication |
-| Database credentials | Defaults in `.env.example` | Strong, unique passwords |
-| Django `SECRET_KEY` | Insecure default | Cryptographically random value |
-| Django `DEBUG` | `True` | `False` |
-| `ALLOWED_HOSTS` | `localhost` | Your actual domain(s) |
-| CORS origins | `localhost:3000` | Your frontend domain(s) |
+### Docker Compose + Caddy (Auto TLS)
 
-A Django system check (`sysroar.W001`) will warn you on every `runserver` and `migrate` if Elasticsearch security is disabled. Set `ELASTICSEARCH_SECURITY_ENABLED=true` in your `.env` to suppress this warning after enabling security.
+```bash
+cp .env.prod.example .env
+# Edit .env with your domain, SECRET_KEY, DB_PASSWORD, and REDIS_PASSWORD
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+Includes Caddy (auto HTTPS + built SPA), Gunicorn + Uvicorn workers for HTTP, dedicated Uvicorn WebSocket service, ingest consumer, Celery worker, single Celery Beat, TimescaleDB PG15, and password-protected Redis 7.
+
+Optional profiles:
+- Daily backups: `docker compose -f docker-compose.prod.yml --profile backups up -d`
+- Multi-tenant logs: `LOG_BACKEND=loki docker compose -f docker-compose.prod.yml --profile logs up -d`
+
+### Kubernetes (Helm)
+
+```bash
+helm upgrade --install sysroar ./deploy/helm/sysroar \
+  --namespace sysroar \
+  --create-namespace \
+  --values my-values.yaml
+```
+
+## Installing the Rust Agent
+
+Create a short-lived enrollment token in **Fleet -> Add Server** and run:
+
+```bash
+# Linux (systemd) and macOS (launchd)
+curl -fsSL https://raw.githubusercontent.com/kbtale/sysroar/main/scripts/install.sh | \
+  sudo SYSROAR_API_BASE_URL="https://monitor.example.com" \
+       SYSROAR_ENROLLMENT_TOKEN="sre_xxxx.yyyy" sh
+```
+
+```powershell
+# Windows (PowerShell Service)
+$env:SYSROAR_API_BASE_URL="https://monitor.example.com"
+$env:SYSROAR_ENROLLMENT_TOKEN="sre_xxxx.yyyy"
+irm https://raw.githubusercontent.com/kbtale/sysroar/main/scripts/install.ps1 | iex
+```
+
+## Documentation
+
+Full guides live in `docs/` (built with VitePress):
+
+- [Installation & Demo Mode](docs/install.md)
+- [Rust Agent & Open Ingestion](docs/agent.md)
+- [Alerting, Maintenance & Anomalies](docs/alerting.md)
+- [Uptime Checks & Public Status Pages](docs/uptime-status.md)
+- [Pluggable Logs (Loki / ELK)](docs/logs.md)
+- [REST & WebSocket API](docs/api.md)
+- [Upgrading & Backups](docs/UPGRADING.md)
+- [Changelog](CHANGELOG.md)
+
+## Architecture
+
+```text
+Rust Agent / OTLP / Prom Remote-Write
+        |  (HTTPS gzip / snappy, AgentKey auth)
+        v
+Caddy (TLS + SPA) -> Gunicorn/Uvicorn (HTTP) & Uvicorn (WS)
+        |  (XADD)
+        v
+Redis Streams ---> Ingest Consumer ---> TimescaleDB (Hypertable + 5m/1h CAGGs)
+                                    |-> Channels Layer -> Live WebSocket UI
+Celery Beat / Worker ---> Alert Engine (Hysteresis, Grouping, Digests)
+                      |-> Uptime Checks (HTTP/TCP/SSL/DNS/Ping)
+                      |-> Outbox Delivery (10 SSRF-Guarded Channels)
+```
+
+## Development & Testing
+
+```bash
+# Backend lint + tests
+ruff check .
+pytest
+
+# Rust agent tests + clippy
+cargo test --manifest-path agent/Cargo.toml
+cargo clippy --manifest-path agent/Cargo.toml --all-targets -- -D warnings
+
+# Frontend typecheck, unit tests, and Playwright E2E
+npm --prefix frontend run typecheck
+npm --prefix frontend test
+npm --prefix frontend run test:e2e
+
+# Docs site local preview
+npm --prefix docs run docs:dev
+```
