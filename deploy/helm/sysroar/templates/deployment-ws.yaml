@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "sysroar.fullname" . }}-ws
+  labels:
+    {{- include "sysroar.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ws
+spec:
+  replicas: {{ .Values.replicas.ws }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "sysroar.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: ws
+  template:
+    metadata:
+      labels:
+        {{- include "sysroar.labels" . | nindent 8 }}
+        app.kubernetes.io/component: ws
+    spec:
+      containers:
+        - name: ws
+          image: "{{ .Values.image.backend.repository }}:{{ .Values.image.backend.tag }}"
+          imagePullPolicy: {{ .Values.image.backend.pullPolicy }}
+          command:
+            - uvicorn
+            - config.asgi:application
+            - --host
+            - 0.0.0.0
+            - --port
+            - "8001"
+            - --proxy-headers
+            - --forwarded-allow-ips
+            - "*"
+          ports:
+            - name: ws
+              containerPort: 8001
+          envFrom:
+            - configMapRef:
+                name: {{ include "sysroar.fullname" . }}-config
+            - secretRef:
+                name: {{ include "sysroar.secretName" . }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: ws
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: ws
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources.ws | nindent 12 }}

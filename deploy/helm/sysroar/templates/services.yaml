@@ -1,0 +1,50 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "sysroar.fullname" . }}-web
+  labels:
+    {{- include "sysroar.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+spec:
+  selector:
+    app.kubernetes.io/name: {{ include "sysroar.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: web
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "sysroar.fullname" . }}-ws
+  labels:
+    {{- include "sysroar.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ws
+spec:
+  selector:
+    app.kubernetes.io/name: {{ include "sysroar.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: ws
+  ports:
+    - name: ws
+      port: 8001
+      targetPort: ws
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "sysroar.fullname" . }}-frontend
+  labels:
+    {{- include "sysroar.labels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend
+spec:
+  selector:
+    app.kubernetes.io/name: {{ include "sysroar.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: frontend
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

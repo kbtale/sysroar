@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "sysroar.fullname" . }}-config
+  labels:
+    {{- include "sysroar.labels" . | nindent 4 }}
+data:
+  DEBUG: "False"
+  ALLOWED_HOSTS: {{ .Values.config.allowedHosts | quote }}
+  CSRF_TRUSTED_ORIGINS: {{ .Values.config.csrfTrustedOrigins | quote }}
+  FRONTEND_URL: {{ .Values.config.frontendUrl | quote }}
+  OPEN_REGISTRATION: {{ .Values.config.openRegistration | quote }}
+  LOG_BACKEND: {{ .Values.config.logBackend | quote }}
+  LOKI_URL: {{ .Values.config.lokiUrl | quote }}
+  ELASTICSEARCH_URL: {{ .Values.config.elasticsearchUrl | quote }}
+  EMAIL_HOST: {{ .Values.config.emailHost | quote }}
+  EMAIL_PORT: {{ .Values.config.emailPort | quote }}
+  EMAIL_USE_TLS: {{ .Values.config.emailUseTls | quote }}
+  DEFAULT_FROM_EMAIL: {{ .Values.config.defaultFromEmail | quote }}
+  USE_X_FORWARDED_PROTO: "True"
+  SECURE_SSL_REDIRECT: "True"
+  SESSION_COOKIE_SECURE: "True"
+  CSRF_COOKIE_SECURE: "True"

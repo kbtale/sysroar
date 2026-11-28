@@ -1,0 +1,114 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "sysroar.fullname" . }}-ingest-consumer
+  labels:
+    {{- include "sysroar.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ingest-consumer
+spec:
+  replicas: {{ .Values.replicas.ingestConsumer }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "sysroar.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: ingest-consumer
+  template:
+    metadata:
+      labels:
+        {{- include "sysroar.labels" . | nindent 8 }}
+        app.kubernetes.io/component: ingest-consumer
+    spec:
+      containers:
+        - name: ingest-consumer
+          image: "{{ .Values.image.backend.repository }}:{{ .Values.image.backend.tag }}"
+          imagePullPolicy: {{ .Values.image.backend.pullPolicy }}
+          command: ["python", "manage.py", "run_ingest_consumer"]
+          envFrom:
+            - configMapRef:
+                name: {{ include "sysroar.fullname" . }}-config
+            - secretRef:
+                name: {{ include "sysroar.secretName" . }}
+          resources:
+            {{- toYaml .Values.resources.worker | nindent 12 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "sysroar.fullname" . }}-celery-worker
+  labels:
+    {{- include "sysroar.labels" . | nindent 4 }}
+    app.kubernetes.io/component: celery-worker
+spec:
+  replicas: {{ .Values.replicas.celeryWorker }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "sysroar.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: celery-worker
+  template:
+    metadata:
+      labels:
+        {{- include "sysroar.labels" . | nindent 8 }}
+        app.kubernetes.io/component: celery-worker
+    spec:
+      containers:
+        - name: celery-worker
+          image: "{{ .Values.image.backend.repository }}:{{ .Values.image.backend.tag }}"
+          imagePullPolicy: {{ .Values.image.backend.pullPolicy }}
+          command:
+            - celery
+            - -A
+            - config
+            - worker
+            - --loglevel=info
+            - --concurrency={{ .Values.config.celeryConcurrency }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "sysroar.fullname" . }}-config
+            - secretRef:
+                name: {{ include "sysroar.secretName" . }}
+          resources:
+            {{- toYaml .Values.resources.worker | nindent 12 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "sysroar.fullname" . }}-celery-beat
+  labels:
+    {{- include "sysroar.labels" . | nindent 4 }}
+    app.kubernetes.io/component: celery-beat
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "sysroar.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: celery-beat
+  template:
+    metadata:
+      labels:
+        {{- include "sysroar.labels" . | nindent 8 }}
+        app.kubernetes.io/component: celery-beat
+    spec:
+      containers:
+        - name: celery-beat
+          image: "{{ .Values.image.backend.repository }}:{{ .Values.image.backend.tag }}"
+          imagePullPolicy: {{ .Values.image.backend.pullPolicy }}
+          command:
+            - celery
+            - -A
+            - config
+            - beat
+            - --loglevel=info
+            - --pidfile=/tmp/celerybeat.pid
+            - -s
+            - /tmp/celerybeat-schedule
+          envFrom:
+            - configMapRef:
+                name: {{ include "sysroar.fullname" . }}-config
+            - secretRef:
+                name: {{ include "sysroar.secretName" . }}
+          resources:
+            {{- toYaml .Values.resources.ws | nindent 12 }}
