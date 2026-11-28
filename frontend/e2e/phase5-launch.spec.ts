@@ -22,10 +22,11 @@ test.describe('SysRoar Phase 5 Production Readiness E2E', () => {
     const schemaResp = await request.get(`${API_BASE}/api/schema/`)
     expect(schemaResp.status()).toBe(401)
 
-    const setupResp = await request.get(`${API_BASE}/api/accounts/setup/`)
+    const setupResp = await request.get(`${API_BASE}/api/accounts/setup/status/`)
     expect(setupResp.status()).toBe(200)
     const setupBody = await setupResp.json()
     expect(typeof setupBody.needs_setup).toBe('boolean')
+    expect(typeof setupBody.open_registration).toBe('boolean')
 
     const unauthMetrics = await request.get(`${API_BASE}/metrics`)
     if (METRICS_TOKEN) {
