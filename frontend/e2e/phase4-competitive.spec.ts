@@ -21,6 +21,7 @@ test.describe('SysRoar Phase 4 Competitive Features E2E Acceptance', () => {
 
     await page.setViewportSize({ width: 1440, height: 900 })
     await page.goto('/')
+    await page.waitForURL(/\/(setup|login)/, { timeout: 15000 })
 
     if (page.url().includes('/setup')) {
       await page.getByLabel('Company Name').fill('SysRoar Phase 4 Ops')
