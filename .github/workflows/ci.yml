@@ -247,7 +247,7 @@ jobs:
         run: |
           npm ci
           npx playwright install chromium --with-deps
-      - name: Run Playwright Phase 3 E2E suite against live stack
+      - name: Run Playwright E2E suite against live stack
         run: |
           python manage.py migrate --noinput
           daphne -b 127.0.0.1 -p 8000 config.asgi:application &
