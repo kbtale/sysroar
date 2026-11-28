@@ -54,7 +54,7 @@ test.describe('SysRoar Phase 4 Competitive Features E2E Acceptance', () => {
     await page.locator('.switch-row [role="switch"]').click()
     await page.getByRole('button', { name: 'Create Check' }).click()
     await expect(page.getByRole('heading', { name: 'New Uptime Check' })).toBeHidden()
-    await expect(page.getByText('Local Healthz Probe')).toBeVisible()
+    await expect(page.getByText('Local Healthz Probe').first()).toBeVisible()
 
     await page.getByRole('button', { name: 'Run', exact: true }).first().click()
     await expect(page.getByText('up', { exact: true }).first()).toBeVisible({ timeout: 15000 })
@@ -68,8 +68,8 @@ test.describe('SysRoar Phase 4 Competitive Features E2E Acceptance', () => {
     await page.getByLabel('Reason (optional)').fill('Automated kernel rollout')
     await page.getByRole('button', { name: 'Schedule Window' }).last().click()
     await expect(page.getByRole('heading', { name: 'Schedule Maintenance Window' })).toBeHidden()
-    await expect(page.getByText('E2E Patching Window')).toBeVisible()
-    await expect(page.getByText('active now')).toBeVisible()
+    await expect(page.getByText('E2E Patching Window').first()).toBeVisible()
+    await expect(page.getByText('active now').first()).toBeVisible()
 
     await page.getByRole('link', { name: 'Settings' }).click()
     await expect(page).toHaveURL(/\/settings/)
@@ -79,7 +79,7 @@ test.describe('SysRoar Phase 4 Competitive Features E2E Acceptance', () => {
     await page.getByLabel('Page Title').fill('SysRoar E2E Status')
     await page.getByLabel('URL Slug').fill('e2e-public-status')
     await page.getByLabel('Description (optional)').fill('Real-time service status.')
-    await page.getByLabel('Local Healthz Probe').check()
+    await page.getByRole('checkbox', { name: 'Local Healthz Probe' }).first().check()
     await page.getByRole('button', { name: 'Create Status Page' }).click()
     await expect(page.getByRole('heading', { name: 'Create Public Status Page' })).toBeHidden()
     await expect(page.getByText('/status/e2e-public-status')).toBeVisible()
