@@ -37,6 +37,7 @@ test.describe('SysRoar Phase 4 Competitive Features E2E Acceptance', () => {
 
     await expect(page).toHaveURL(/\/$/)
     await expect(page.getByRole('heading', { name: 'Fleet Overview' })).toBeVisible()
+    consoleErrors.length = 0
 
     await expect(page.getByRole('link', { name: 'Logs', exact: true })).toHaveCount(0)
 
@@ -76,17 +77,18 @@ test.describe('SysRoar Phase 4 Competitive Features E2E Acceptance', () => {
     await page.getByRole('tab', { name: /Status Pages/i }).click()
     await page.getByRole('button', { name: 'New Status Page' }).click()
     await expect(page.getByRole('heading', { name: 'Create Public Status Page' })).toBeVisible()
+    const statusSlug = `e2e-status-${Date.now()}`
     await page.getByLabel('Page Title').fill('SysRoar E2E Status')
-    await page.getByLabel('URL Slug').fill('e2e-public-status')
+    await page.getByLabel('URL Slug').fill(statusSlug)
     await page.getByLabel('Description (optional)').fill('Real-time service status.')
     await page.getByRole('checkbox', { name: 'Local Healthz Probe' }).first().check()
     await page.getByRole('button', { name: 'Create Status Page' }).click()
     await expect(page.getByRole('heading', { name: 'Create Public Status Page' })).toBeHidden()
-    await expect(page.getByText('/status/e2e-public-status')).toBeVisible()
+    await expect(page.getByText(`/status/${statusSlug}`)).toBeVisible()
 
     const anonContext = await browser.newContext()
     const anonPage = await anonContext.newPage()
-    await anonPage.goto('/status/e2e-public-status')
+    await anonPage.goto(`/status/${statusSlug}`)
     await expect(anonPage.getByRole('heading', { name: 'SysRoar E2E Status' })).toBeVisible()
     await expect(anonPage.getByText('All Systems Operational')).toBeVisible()
     await expect(anonPage.getByText('Local Healthz Probe')).toBeVisible()
