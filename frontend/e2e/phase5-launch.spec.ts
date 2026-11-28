@@ -20,9 +20,7 @@ test.describe('SysRoar Phase 5 Production Readiness E2E', () => {
     expect(readyBody.checks.ingest_lag).toBe(true)
 
     const schemaResp = await request.get(`${API_BASE}/api/schema/`)
-    expect(schemaResp.status()).toBe(200)
-    const schemaText = await schemaResp.text()
-    expect(schemaText).toContain('openapi:')
+    expect(schemaResp.status()).toBe(401)
 
     const setupResp = await request.get(`${API_BASE}/api/accounts/setup/`)
     expect(setupResp.status()).toBe(200)

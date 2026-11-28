@@ -3,7 +3,9 @@ services:
     image: timescale/timescaledb:latest-pg15
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
     environment:
       - POSTGRES_DB=${DB_NAME:-sysroar}
       - POSTGRES_USER=${DB_USER:-sysroar_user}
@@ -37,7 +39,9 @@ services:
     build: .
     volumes:
       - .:/app
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
     environment:
       - DEBUG=${DEBUG:-True}
       - DATABASE_URL=postgres://${DB_USER:-sysroar_user}:${DB_PASSWORD:-sysroar_password}@db:5432/${DB_NAME:-sysroar}
@@ -66,7 +70,9 @@ services:
     build: .
     volumes:
       - .:/app
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
     environment:
       - DATABASE_URL=postgres://${DB_USER:-sysroar_user}:${DB_PASSWORD:-sysroar_password}@db:5432/${DB_NAME:-sysroar}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
@@ -87,7 +93,9 @@ services:
     build: .
     volumes:
       - .:/app
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
     environment:
       - DATABASE_URL=postgres://${DB_USER:-sysroar_user}:${DB_PASSWORD:-sysroar_password}@db:5432/${DB_NAME:-sysroar}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
@@ -108,7 +116,9 @@ services:
     build: .
     volumes:
       - .:/app
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
     environment:
       - DATABASE_URL=postgres://${DB_USER:-sysroar_user}:${DB_PASSWORD:-sysroar_password}@db:5432/${DB_NAME:-sysroar}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
@@ -131,7 +141,9 @@ services:
       - demo
     volumes:
       - .:/app
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
     environment:
       - DATABASE_URL=postgres://${DB_USER:-sysroar_user}:${DB_PASSWORD:-sysroar_password}@db:5432/${DB_NAME:-sysroar}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
