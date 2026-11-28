@@ -228,6 +228,8 @@ jobs:
       CELERY_RESULT_BACKEND: "redis://127.0.0.1:6379/2"
       EMAIL_BACKEND: "django.core.mail.backends.console.EmailBackend"
       FRONTEND_URL: "http://localhost:5173"
+      METRICS_AUTH_TOKEN: "ci-e2e-metrics-token"
+      E2E_METRICS_TOKEN: "ci-e2e-metrics-token"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -260,3 +262,20 @@ jobs:
             sleep 0.5
           done
           npm --prefix frontend run test:e2e
+
+  deploy-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: Validate Docker Compose configurations
+        run: |
+          docker compose --env-file .env.prod.example -f docker-compose.prod.yml --profile backups --profile logs --profile dogfood config -q
+          docker compose --profile demo --profile logs config -q
+      - name: Lint and template Helm chart
+        run: |
+          helm lint deploy/helm/sysroar
+          helm template sysroar deploy/helm/sysroar >/dev/null
+      - name: Validate shell script syntax
+        run: |
+          sh -n scripts/entrypoint.sh scripts/backup-db.sh scripts/restore-db.sh scripts/install.sh
