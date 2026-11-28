@@ -272,6 +272,27 @@ services:
           sleep "$${BACKUP_INTERVAL_SECONDS:-86400}"
         done
 
+  self_agent:
+    build:
+      context: ./agent
+      dockerfile: Dockerfile
+    profiles:
+      - dogfood
+    restart: unless-stopped
+    environment:
+      SYSROAR_API_BASE_URL: http://web:8000
+      SYSROAR_SERVER_ID: ${DOGFOOD_SERVER_ID:-}
+      SYSROAR_AGENT_KEY: ${DOGFOOD_AGENT_KEY:-}
+      SYSROAR_INTERVAL_SECS: ${DOGFOOD_INTERVAL_SECS:-15}
+      SYSROAR_BUFFER_PATH: /var/lib/sysroar-agent/buffer.db
+    volumes:
+      - self_agent_data:/var/lib/sysroar-agent
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+    depends_on:
+      web:
+        condition: service_healthy
+
 volumes:
   postgres_data:
   redis_data:
@@ -279,3 +300,4 @@ volumes:
   caddy_config:
   loki_data:
   db_backups:
+  self_agent_data:

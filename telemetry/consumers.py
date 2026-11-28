@@ -6,6 +6,7 @@ from urllib.parse import parse_qs
 from asgiref.sync import sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
 from django.utils import timezone
+from monitoring.metrics import WS_ACTIVE_CONNECTIONS
 from monitoring.models import Server
 from monitoring.tasks import record_system_event
 from telemetry.logs import get_log_backend
@@ -15,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 class CompanyTelemetryConsumer(AsyncWebsocketConsumer):
     async def connect(self):
+        self._ws_counted = False
         self.user = self.scope.get('user')
         if not self.user or not self.user.is_authenticated or not getattr(self.user, 'company_id', None):
             await self.close(code=4401)
@@ -24,8 +26,13 @@ class CompanyTelemetryConsumer(AsyncWebsocketConsumer):
         self.group_name = f'company_{self.company_id}'
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
+        self._ws_counted = True
+        WS_ACTIVE_CONNECTIONS.inc()
 
     async def disconnect(self, close_code):
+        if getattr(self, '_ws_counted', False):
+            self._ws_counted = False
+            WS_ACTIVE_CONNECTIONS.dec()
         if hasattr(self, 'group_name'):
             await self.channel_layer.group_discard(self.group_name, self.channel_name)
 
@@ -35,6 +42,7 @@ class CompanyTelemetryConsumer(AsyncWebsocketConsumer):
 
 class ServerTelemetryConsumer(AsyncWebsocketConsumer):
     async def connect(self):
+        self._ws_counted = False
         self.server_id = str(self.scope['url_route']['kwargs']['server_id'])
         self.user = self.scope.get('user')
 
@@ -78,8 +86,13 @@ class ServerTelemetryConsumer(AsyncWebsocketConsumer):
         )
 
         await self.accept()
+        self._ws_counted = True
+        WS_ACTIVE_CONNECTIONS.inc()
 
     async def disconnect(self, close_code):
+        if getattr(self, '_ws_counted', False):
+            self._ws_counted = False
+            WS_ACTIVE_CONNECTIONS.dec()
         if hasattr(self, 'group_name'):
             await self.channel_layer.group_discard(
                 self.group_name,
@@ -98,6 +111,7 @@ class ServerTelemetryConsumer(AsyncWebsocketConsumer):
 
 class LogTailConsumer(AsyncWebsocketConsumer):
     async def connect(self):
+        self._ws_counted = False
         self.user = self.scope.get('user')
         if not self.user or not self.user.is_authenticated or not getattr(self.user, 'company_id', None):
             await self.close(code=4401)
@@ -116,9 +130,14 @@ class LogTailConsumer(AsyncWebsocketConsumer):
                 return
 
         await self.accept()
+        self._ws_counted = True
+        WS_ACTIVE_CONNECTIONS.inc()
         self._tail_task = asyncio.create_task(self._poll_loop())
 
     async def disconnect(self, close_code):
+        if getattr(self, '_ws_counted', False):
+            self._ws_counted = False
+            WS_ACTIVE_CONNECTIONS.dec()
         task = getattr(self, '_tail_task', None)
         if task is not None:
             task.cancel()
