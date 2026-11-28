@@ -60,7 +60,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    command: python manage.py runserver 0.0.0.0:8000
+    command: sh -c "python manage.py migrate --noinput && daphne -b 0.0.0.0 -p 8000 config.asgi:application"
 
   ingest_consumer:
     build: .
@@ -124,6 +124,41 @@ services:
       redis:
         condition: service_healthy
     command: celery -A config beat --loglevel=info
+
+  demo_simulator:
+    build: .
+    profiles:
+      - demo
+    volumes:
+      - .:/app
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgres://${DB_USER:-sysroar_user}:${DB_PASSWORD:-sysroar_password}@db:5432/${DB_NAME:-sysroar}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - CELERY_BROKER_URL=${CELERY_BROKER_URL:-redis://redis:6379/1}
+      - LOG_BACKEND=${LOG_BACKEND:-none}
+    depends_on:
+      web:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: python manage.py run_demo_simulator --interval 10
+
+  demo_ui:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    profiles:
+      - demo
+    environment:
+      - SYSROAR_DOMAIN=:80
+    ports:
+      - "127.0.0.1:8080:80"
+    volumes:
+      - ./deploy/caddy/Caddyfile.demo:/etc/caddy/Caddyfile:ro
+    depends_on:
+      web:
+        condition: service_healthy
 
   loki:
     image: grafana/loki:3.1.1
