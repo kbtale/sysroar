@@ -1,0 +1,30 @@
+:8080 {
+	respond /caddy-healthz "ok" 200
+}
+
+{$SYSROAR_DOMAIN::80} {
+	encode zstd gzip
+
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "same-origin"
+		-Server
+	}
+
+	@ws path /ws/*
+	handle @ws {
+		reverse_proxy ws:8001
+	}
+
+	@backend path /api/* /healthz /readyz /metrics /admin/*
+	handle @backend {
+		reverse_proxy web:8000
+	}
+
+	handle {
+		root * /srv/www
+		try_files {path} /index.html
+		file_server
+	}
+}
