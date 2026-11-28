@@ -1,0 +1,90 @@
+image:
+  backend:
+    repository: ghcr.io/kbtale/sysroar-backend
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+  frontend:
+    repository: ghcr.io/kbtale/sysroar-frontend
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+
+replicas:
+  web: 2
+  ws: 2
+  ingestConsumer: 1
+  celeryWorker: 2
+  frontend: 2
+
+config:
+  domain: monitor.example.com
+  allowedHosts: "monitor.example.com"
+  csrfTrustedOrigins: "https://monitor.example.com"
+  frontendUrl: "https://monitor.example.com"
+  openRegistration: "False"
+  logBackend: "none"
+  lokiUrl: "http://loki:3100"
+  elasticsearchUrl: "http://elasticsearch:9200"
+  emailHost: "smtp.example.com"
+  emailPort: "587"
+  emailUseTls: "True"
+  defaultFromEmail: "alerts@example.com"
+  webWorkers: "2"
+  celeryConcurrency: "4"
+
+secrets:
+  existingSecret: ""
+  secretKey: "replace-with-64-char-random-secret"
+  databaseUrl: "postgres://sysroar_user:replace-password@timescaledb:5432/sysroar"
+  redisUrl: "redis://:replace-password@redis:6379/0"
+  celeryBrokerUrl: "redis://:replace-password@redis:6379/1"
+  celeryResultBackend: "redis://:replace-password@redis:6379/2"
+  metricsAuthToken: ""
+  emailHostUser: ""
+  emailHostPassword: ""
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+  tls:
+    enabled: true
+    secretName: sysroar-tls
+
+resources:
+  web:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  ws:
+    requests:
+      cpu: 100m
+      memory: 192Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  worker:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  frontend:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+backup:
+  enabled: false
+  schedule: "0 3 * * *"
+  image: timescale/timescaledb:latest-pg15
+  retentionDays: 14
+  pvcName: sysroar-backups
